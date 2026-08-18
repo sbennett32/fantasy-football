@@ -401,6 +401,45 @@ td.bold { color: var(--text); font-weight: 600; }
 /* ─── Rankings comparison table ─────────────────────────────── */
 .src-min { color: var(--green); }
 .src-max { color: var(--red); }
+
+/* ─── Player Lookup ──────────────────────────────────────────── */
+.lookup-search-wrap { position: relative; max-width: 420px; margin-bottom: 20px; }
+.lookup-input {
+  width: 100%; background: var(--surface2); border: 1px solid var(--border2);
+  color: var(--text); font-family: var(--mono); font-size: 13px;
+  padding: 10px 14px; border-radius: 6px; outline: none;
+}
+.lookup-input::placeholder { color: var(--text3); }
+.lookup-input:focus { border-color: var(--purple); }
+.lookup-dropdown {
+  position: absolute; top: calc(100% + 6px); left: 0; right: 0;
+  background: var(--surface2); border: 1px solid var(--border2);
+  border-radius: 6px; overflow: hidden; z-index: 50; display: none;
+  max-height: 320px; overflow-y: auto;
+}
+.lookup-dropdown.open { display: block; }
+.lookup-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 12px; cursor: pointer; font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.lookup-item:last-child { border-bottom: none; }
+.lookup-item:hover, .lookup-item.active { background: var(--surface3); }
+.lookup-item .lookup-item-team { margin-left: auto; color: var(--text3); font-size: 10px; }
+.lookup-empty { padding: 10px 12px; color: var(--text3); font-size: 11px; }
+
+.lookup-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.lookup-card-name { font-size: 18px; font-weight: 700; }
+.lookup-avg { font-size: 28px; font-weight: 700; color: var(--purple); }
+.lookup-est { color: var(--text3); font-size: 10px; cursor: help; margin-left: 6px; }
+.lookup-guide-row {
+  display: flex; justify-content: space-between; padding: 8px 0;
+  border-bottom: 1px solid var(--border); font-size: 12px;
+}
+.lookup-guide-row:last-child { border-bottom: none; }
+.lookup-guide-label { color: var(--text2); letter-spacing: 0.06em; font-size: 10px; }
+.lookup-guide-val { color: var(--text3); }
+.pts-estimated { color: var(--text2); cursor: help; }
 </style>
 </head>
 <body>
@@ -416,6 +455,10 @@ td.bold { color: var(--text); font-weight: 600; }
       </div>
     </a>
     <div class="topbar-right">
+      <div class="scoring-toggle" id="format-toggle">
+        <button class="scoring-btn" data-format="std" onclick="setFormat('std')">STD</button>
+        <button class="scoring-btn active" data-format="ppr" onclick="setFormat('ppr')">PPR</button>
+      </div>
       <span id="last-updated">no data loaded</span>
       <span class="week-pill" id="week-pill">WEEK —</span>
     </div>
@@ -427,6 +470,7 @@ td.bold { color: var(--text); font-weight: 600; }
     <div class="tab" data-page="rankings">RANKINGS</div>
     <div class="tab" data-page="news">INJURIES &amp; NEWS</div>
     <div class="tab" data-page="scouting">SCOUTING INFO</div>
+    <div class="tab" data-page="lookup">PLAYER LOOKUP</div>
   </nav>
 
   <!-- ── Pages ── -->
@@ -435,9 +479,9 @@ td.bold { color: var(--text); font-weight: 600; }
     <!-- PROJECTIONS -->
     <section class="page active" id="page-projections">
       <div class="summary-row" id="proj-summary">
-        <div class="stat-card"><div class="stat-label">QB REPLACEMENT</div><div class="stat-val c-purple" id="s-rb-rl">—</div><div class="stat-sub" id="s-rb-rl-name">QB13 baseline</div></div>
-        <div class="stat-card"><div class="stat-label">RB REPLACEMENT</div><div class="stat-val c-green" id="s-wr-rl">—</div><div class="stat-sub" id="s-wr-rl-name">RB25 baseline</div></div>
-        <div class="stat-card"><div class="stat-label">WR REPLACEMENT</div><div class="stat-val c-blue" id="s-te-rl">—</div><div class="stat-sub" id="s-te-rl-name">WR37 baseline</div></div>
+        <div class="stat-card"><div class="stat-label">QB REPLACEMENT</div><div class="stat-val c-purple" id="s-qb-rl">—</div><div class="stat-sub" id="s-qb-rl-name">QB13 baseline</div></div>
+        <div class="stat-card"><div class="stat-label">RB REPLACEMENT</div><div class="stat-val c-green" id="s-rb-rl">—</div><div class="stat-sub" id="s-rb-rl-name">RB25 baseline</div></div>
+        <div class="stat-card"><div class="stat-label">WR REPLACEMENT</div><div class="stat-val c-blue" id="s-wr-rl">—</div><div class="stat-sub" id="s-wr-rl-name">WR37 baseline</div></div>
         <div class="stat-card"><div class="stat-label">LAST DATA LOAD</div><div class="stat-val" id="s-last-load" style="font-size:15px;color:var(--text2)">—</div><div class="stat-sub" id="s-last-source">no data loaded</div></div>
       </div>
 
@@ -452,13 +496,6 @@ td.bold { color: var(--text); font-weight: 600; }
             <button class="filter-btn" data-pos="TE">TE</button>
             <button class="filter-btn" data-pos="K">K</button>
             <button class="filter-btn" data-pos="DST">DST</button>
-          </div>
-        </div>
-        <div class="section-head-right">
-          <div class="scoring-toggle" id="scoring-toggle">
-            <button class="scoring-btn active" data-scoring="std"  onclick="setScoringMode('std')">STD</button>
-            <button class="scoring-btn"        data-scoring="hppr" onclick="setScoringMode('hppr')">HALF-PPR</button>
-            <button class="scoring-btn"        data-scoring="ppr"  onclick="setScoringMode('ppr')">PPR</button>
           </div>
         </div>
       </div>
@@ -562,6 +599,23 @@ td.bold { color: var(--text); font-weight: 600; }
       <div id="pod-feed"></div>
     </section>
 
+    <!-- PLAYER LOOKUP -->
+    <section class="page" id="page-lookup">
+      <div class="section-head">
+        <span class="section-title">PLAYER LOOKUP</span>
+      </div>
+      <div class="lookup-search-wrap">
+        <input type="text" id="lookup-input" class="lookup-input" placeholder="Search a player name…" autocomplete="off">
+        <div class="lookup-dropdown" id="lookup-dropdown"></div>
+      </div>
+      <div id="lookup-card">
+        <div class="empty-state">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M11 19a8 8 0 100-16 8 8 0 000 16zM21 21l-4.35-4.35"/></svg>
+          Search for a player above to see their per-source projections
+        </div>
+      </div>
+    </section>
+
   </main>
 
 <script>
@@ -578,7 +632,8 @@ const state = {
   rankPos: 'ALL',
   rankSort: { col: 'avg', dir: 'desc' },
   newsImp: 'ALL',
-  scoring: 'std',   // 'std' | 'hppr' | 'ppr'
+  format: 'ppr',   // 'std' | 'ppr' — single source of truth for scoring basis, site-wide
+  lookupSelected: null,
 };
 
 /* ══════════════════════════════════════════════
@@ -608,38 +663,91 @@ function num(v, def = 0) { const n = parseFloat(v); return isNaN(n) ? def : n; }
 function fmt(v, dec = 1) { const n = parseFloat(v); return isNaN(n) ? '—' : n.toFixed(dec); }
 
 /* ══════════════════════════════════════════════
-   SCORING MODE HELPERS
-   For uploaded CSVs: if proj_std/proj_hppr/proj_ppr columns exist, use them.
-   Otherwise fall back to a reception-based estimate from proj (PPR baseline).
-   RBs ~50 rec/yr, WRs ~90 rec/yr, TEs ~55 rec/yr, QBs 0 rec bonus.
-   Half-PPR = proj - (recs * 0.5), Std = proj - recs
-   (These apply only to default ESPN data where proj is PPR-based.)
-══════════════════════════════════════════════ */
-const REC_ESTIMATES = { QB: 0, RB: 50, WR: 90, TE: 55, K: 0, DST: 0 };
+   STD <-> PPR CONVERSION  (single global toggle: state.format)
+   PPR is defined as STD + 1 point per reception. Converting a total
+   between the two bases exactly REQUIRES a real per-player reception
+   count. receptionsFor() looks for one on the source's player object
+   (checking `rec` / `receptions` / `rec_ppr`); when absent, we fall
+   back to a per-position season-average estimate (REC_ESTIMATES) and
+   flag the resulting value as estimated so it is never displayed as
+   if it were exact.
 
-function scoredVal(player, field) {
-  // field = 'proj' | 'floor' | 'ceil'
-  const mode = state.scoring;
-  // If CSV uploaded explicit columns, use them
-  const explicitKey = field + '_' + mode; // e.g. proj_std
-  if (player[explicitKey] !== undefined) return num(player[explicitKey]);
-  // Fall back to estimate from PPR base value
-  const base = num(player[field]);
-  if (!base) return base;
-  const pos = (player.pos || '').toUpperCase();
-  const recs = REC_ESTIMATES[pos] || 0;
-  if (mode === 'ppr')  return Math.round(base * 10) / 10;
-  if (mode === 'hppr') return Math.round((base - recs * 0.5) * 10) / 10;
-  return Math.round((base - recs) * 10) / 10; // std
+   The ONLY way to make a conversion exact is to add a real `rec`
+   column to that source's player data — once present, receptionsFor()
+   always returns it and the estimate path below is never used again
+   for that player, with no other code change required.
+
+   Basis per source:
+     - ESPN's stored `proj`/`floor`/`ceil` are PPR-based (given).
+     - Every other named source (the UDK rankers: Andy/Mike/Jason)
+       stores standard-scoring `pts` (given) — see the comment above
+       loadUDKDefaults() for how those were computed.
+   stdVal()/pprVal() give either basis for a single source's player
+   entry; whichever basis matches the source's given data is returned
+   exactly, the other is derived (and flagged if estimated).
+══════════════════════════════════════════════ */
+const REC_ESTIMATES = { QB: 0, RB: 45, WR: 75, TE: 55, K: 0, DST: 0 };
+
+function receptionsFor(player, sourceName) {
+  const v = player && (player.rec ?? player.receptions ?? player.rec_ppr);
+  return (typeof v === 'number' && !isNaN(v)) ? v : null;
 }
 
-function setScoringMode(mode) {
-  state.scoring = mode;
-  document.querySelectorAll('.scoring-btn').forEach(b => {
-    b.classList.toggle('active', b.dataset.scoring === mode);
+function convertFromPPR(pprBase, pos, player, sourceName, format) {
+  if (!pprBase) return { value: null, estimated: false };
+  if (format === 'ppr') return { value: pprBase, estimated: false };
+  const real = receptionsFor(player, sourceName);
+  const recs = real != null ? real : (REC_ESTIMATES[pos] || 0);
+  return { value: Math.round((pprBase - recs) * 10) / 10, estimated: real == null };
+}
+
+function convertFromSTD(stdBase, pos, player, sourceName, format) {
+  if (!stdBase) return { value: null, estimated: false };
+  if (format === 'std') return { value: stdBase, estimated: false };
+  const real = receptionsFor(player, sourceName);
+  const recs = real != null ? real : (REC_ESTIMATES[pos] || 0);
+  return { value: Math.round((stdBase + recs) * 10) / 10, estimated: real == null };
+}
+
+// Standard-scoring total for one source's player entry.
+function stdVal(player, sourceName) {
+  const pos = (player.pos || '').toUpperCase();
+  return sourceName === 'ESPN'
+    ? convertFromPPR(num(player.proj), pos, player, sourceName, 'std')
+    : convertFromSTD(num(player.pts), pos, player, sourceName, 'std');
+}
+
+// PPR total for one source's player entry.
+function pprVal(player, sourceName) {
+  const pos = (player.pos || '').toUpperCase();
+  return sourceName === 'ESPN'
+    ? convertFromPPR(num(player.proj), pos, player, sourceName, 'ppr')
+    : convertFromSTD(num(player.pts), pos, player, sourceName, 'ppr');
+}
+
+function valueFor(player, sourceName, format) {
+  return format === 'ppr' ? pprVal(player, sourceName) : stdVal(player, sourceName);
+}
+
+// Projections-table fields (proj/floor/ceil) are ESPN-only and PPR-based.
+function projFieldVal(player, field, format) {
+  return convertFromPPR(num(player[field]), (player.pos || '').toUpperCase(), player, 'ESPN', format);
+}
+
+function setFormat(format) {
+  state.format = format;
+  document.querySelectorAll('#format-toggle .scoring-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.format === format);
   });
+  buildRankingsCombined(); // pts/estimated flags depend on state.format — rebuild
   renderProjections();
   updateSummary();
+  renderRankings();
+  if (state.lookupSelected) {
+    const key = normalizeName(state.lookupSelected.name) + '|' + state.lookupSelected.pos;
+    state.lookupSelected = state.rankingsCombined.find(r => normalizeName(r.name) + '|' + r.pos === key) || state.lookupSelected;
+    renderLookupCard();
+  }
 }
 
 /* ══════════════════════════════════════════════
@@ -649,12 +757,13 @@ function updateSummary() {
   const d = state.projections;
   if (!d.length) return;
 
-  // Replacement level baselines: QB13, RB25, WR37, TE13
+  // Replacement level baselines: QB13, RB25, WR37
   const byPos = {};
   d.forEach(r => {
     const p = (r.pos||'').toUpperCase();
     if (!byPos[p]) byPos[p] = [];
-    byPos[p].push(scoredVal(r,'proj'));
+    const v = projFieldVal(r, 'proj', state.format).value;
+    if (v != null) byPos[p].push(v);
   });
   const rl = (pos, n) => {
     const arr = (byPos[pos]||[]).sort((a,b)=>b-a);
@@ -662,16 +771,16 @@ function updateSummary() {
   };
   const rlName = (pos, n) => {
     const arr = [...d].filter(r=>(r.pos||'').toUpperCase()===pos)
-      .sort((a,b)=>scoredVal(b,'proj')-scoredVal(a,'proj'));
+      .sort((a,b)=>(projFieldVal(b,'proj',state.format).value||0)-(projFieldVal(a,'proj',state.format).value||0));
     return arr[n-1] ? arr[n-1].name.split(' ').pop() : '';
   };
 
-  document.getElementById('s-rb-rl').textContent      = rl('QB', 13);
-  document.getElementById('s-rb-rl-name').textContent = rlName('QB',13) ? `QB13 · ${rlName('QB',13)}` : 'QB13 baseline';
-  document.getElementById('s-wr-rl').textContent      = rl('RB', 25);
-  document.getElementById('s-wr-rl-name').textContent = rlName('RB',25) ? `RB25 · ${rlName('RB',25)}` : 'RB25 baseline';
-  document.getElementById('s-te-rl').textContent      = rl('WR', 37);
-  document.getElementById('s-te-rl-name').textContent = rlName('WR',37) ? `WR37 · ${rlName('WR',37)}` : 'WR37 baseline';
+  document.getElementById('s-qb-rl').textContent      = rl('QB', 13);
+  document.getElementById('s-qb-rl-name').textContent = rlName('QB',13) ? `QB13 · ${rlName('QB',13)}` : 'QB13 baseline';
+  document.getElementById('s-rb-rl').textContent      = rl('RB', 25);
+  document.getElementById('s-rb-rl-name').textContent = rlName('RB',25) ? `RB25 · ${rlName('RB',25)}` : 'RB25 baseline';
+  document.getElementById('s-wr-rl').textContent      = rl('WR', 37);
+  document.getElementById('s-wr-rl-name').textContent = rlName('WR',37) ? `WR37 · ${rlName('WR',37)}` : 'WR37 baseline';
 
   const now = new Date();
   document.getElementById('s-last-load').textContent  = now.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
@@ -691,8 +800,10 @@ function renderProjections() {
   rows.sort((a, b) => {
     let av, bv;
     if (['proj','floor','ceil'].includes(projSort.col)) {
-      av = scoredVal(a, projSort.col);
-      bv = scoredVal(b, projSort.col);
+      av = projFieldVal(a, projSort.col, state.format).value;
+      bv = projFieldVal(b, projSort.col, state.format).value;
+      if (av == null) av = -Infinity;
+      if (bv == null) bv = -Infinity;
     } else {
       av = a[projSort.col] || '';
       bv = b[projSort.col] || '';
@@ -710,20 +821,28 @@ function renderProjections() {
     return;
   }
 
+  const ptsCell = entry => {
+    if (entry.value === null || entry.value === undefined) return '—';
+    const txt = fmt(entry.value);
+    return entry.estimated
+      ? `<span class="pts-estimated" title="estimated — no reception data">~${txt}</span>`
+      : txt;
+  };
+
   tbody.innerHTML = rows.map((r, i) => {
     const conf = num(r.conf, 0);
     const pos = (r.pos || '').toUpperCase();
-    const pv = scoredVal(r,'proj');
-    const fv = scoredVal(r,'floor');
-    const cv = scoredVal(r,'ceil');
+    const pv = projFieldVal(r, 'proj', state.format);
+    const fv = projFieldVal(r, 'floor', state.format);
+    const cv = projFieldVal(r, 'ceil', state.format);
     return `<tr>
       <td class="bold">${i + 1}</td>
       <td><span class="pos pos-${pos}">${pos}</span><span class="bold">${r.name || '—'}</span></td>
       <td>${r.team || '—'}</td>
       <td style="color:var(--text3)">${r.opp || '—'}</td>
-      <td class="r bold">${fmt(pv)}</td>
-      <td class="r" style="color:var(--text3)">${fv ? fmt(fv) : '—'}</td>
-      <td class="r" style="color:var(--text2)">${cv ? fmt(cv) : '—'}</td>
+      <td class="r bold">${ptsCell(pv)}</td>
+      <td class="r" style="color:var(--text3)">${ptsCell(fv)}</td>
+      <td class="r" style="color:var(--text2)">${ptsCell(cv)}</td>
       <td class="r">${r.conf ? `<div class="conf-cell"><span class="conf-pct">${conf}%</span><div class="conf-track"><div class="conf-fill" style="width:${Math.min(conf,100)}%"></div></div></div>` : '—'}</td>
       <td style="color:var(--text3);font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.notes || ''}</td>
     </tr>`;
@@ -767,15 +886,20 @@ document.getElementById('pos-filters').addEventListener('click', e => {
    Combines the ESPN default projections with any number of named
    ranker sources (state.rankSources[sourceName][pos] = [{name,team,pts}]),
    matched by normalized player name + position, into one row per
-   player showing each source's projected season fantasy points plus
+   player showing each source's projected season fantasy points, in
+   the CURRENT state.format (see the STD<->PPR converter above), plus
    the average across sources. Sorted by average points, highest first.
+   Rebuilt whenever state.format changes (see setFormat) so every value
+   and its estimated/exact flag always reflects the active toggle.
 
-   Point totals for UDK sources (Andy/Mike/Jason) are calculated from
-   their raw stat lines (yards, TDs, INTs, fumbles) using standard
-   4pt-passing-TD scoring: 1pt/25 pass yds, 4pt pass TD, 1pt/10 rush or
-   rec yds, 6pt rush/rec TD, -2 INT, -2 fumble, 0 per reception — see
-   the parsing step that produced UDK_SOURCES below. ESPN's PPR-based
-   projection is converted to the same standard-scoring basis.
+   UDK sources (Andy/Mike/Jason) store standard-scoring point totals
+   calculated from their raw stat lines (yards, TDs, INTs, fumbles)
+   using standard 4pt-passing-TD scoring: 1pt/25 pass yds, 4pt pass TD,
+   1pt/10 rush or rec yds, 6pt rush/rec TD, -2 INT, -2 fumble, 0 per
+   reception — see the parsing step that produced UDK_SOURCES below.
+   ESPN's projection is PPR-based. Neither carries a real reception
+   count, so converting either to the other basis is always an
+   estimate right now (flagged in the UI) until a `rec` field is added.
 ══════════════════════════════════════════════ */
 state.rankSources = {}; // e.g. { Andy: { QB: [...], RB: [...] }, Mike: {...} }
 
@@ -788,40 +912,34 @@ function normalizeName(n) {
     .trim();
 }
 
-function espnStdPts(player) {
-  // ESPN's proj field is a PPR-based season total; strip the estimated
-  // reception bonus to put it on the same standard-scoring basis as UDK.
-  const base = num(player.proj);
-  if (!base) return null;
-  const recs = REC_ESTIMATES[(player.pos || '').toUpperCase()] || 0;
-  return Math.round((base - recs) * 10) / 10;
-}
-
 function buildRankingsCombined() {
   const combined = {};
-  function addRow(sourceName, name, team, pos, pts) {
-    if (pts === null || pts === undefined || isNaN(pts)) return;
+  function addRow(sourceName, name, team, pos, rawItem) {
+    const entry = valueFor({ ...rawItem, pos }, sourceName, state.format);
+    if (entry.value === null || entry.value === undefined || isNaN(entry.value)) return;
     const key = normalizeName(name) + '|' + pos;
     if (!combined[key]) combined[key] = { name, team, pos, pts: {} };
     if (!combined[key].team) combined[key].team = team;
-    combined[key].pts[sourceName] = pts;
+    combined[key].pts[sourceName] = entry; // { value, estimated }
   }
 
   // ESPN default projections double as a source
   state.projections.forEach(p => {
-    addRow('ESPN', p.name, p.team, (p.pos || '').toUpperCase(), espnStdPts(p));
+    addRow('ESPN', p.name, p.team, (p.pos || '').toUpperCase(), p);
   });
 
   // Any additional named sources (e.g. UDK: Andy, Mike, Jason)
   Object.entries(state.rankSources).forEach(([sourceName, posMap]) => {
     Object.entries(posMap).forEach(([pos, list]) => {
-      (list || []).forEach(item => addRow(sourceName, item.name, item.team, pos, item.pts));
+      (list || []).forEach(item => addRow(sourceName, item.name, item.team, pos, item));
     });
   });
 
   state.rankingsCombined = Object.values(combined).map(r => {
-    const ptsVals = Object.values(r.pts).filter(v => typeof v === 'number');
-    r.avg = ptsVals.length ? ptsVals.reduce((a, b) => a + b, 0) / ptsVals.length : null;
+    const ptsEntries = Object.values(r.pts);
+    const vals = ptsEntries.map(p => p.value).filter(v => typeof v === 'number');
+    r.avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+    r.avgEstimated = ptsEntries.some(p => p.estimated);
     return r;
   });
 }
@@ -845,7 +963,8 @@ function renderRankings() {
     } else if (col === 'avg') {
       av = a.avg; bv = b.avg;
     } else {
-      av = a.pts[col]; bv = b.pts[col];
+      av = a.pts[col] ? a.pts[col].value : undefined;
+      bv = b.pts[col] ? b.pts[col].value : undefined;
     }
     const aMissing = av === null || av === undefined;
     const bMissing = bv === null || bv === undefined;
@@ -857,15 +976,22 @@ function renderRankings() {
     return 0;
   });
 
-  const cell = v => (v === undefined || v === null) ? `<span style="color:var(--text3)">—</span>` : v.toFixed(1);
+  const cell = entry => {
+    if (!entry || entry.value === undefined || entry.value === null) return `<span style="color:var(--text3)">—</span>`;
+    const txt = entry.value.toFixed(1);
+    return entry.estimated
+      ? `<span class="pts-estimated" title="estimated — no reception data">~${txt}</span>`
+      : txt;
+  };
 
   tbody.innerHTML = rows.map((r, i) => {
     const pos = (r.pos || '').toUpperCase();
+    const avgTxt = r.avg != null ? `${r.avgEstimated ? '~' : ''}${r.avg.toFixed(1)}` : '—';
     return `<tr>
       <td class="r" style="color:var(--text3)">${i + 1}</td>
       <td><span class="pos pos-${pos}">${pos}</span><span class="bold">${r.name || '—'}</span></td>
       <td style="color:var(--text3)">${r.team || '—'}</td>
-      <td class="r bold">${r.avg != null ? r.avg.toFixed(1) : '—'}</td>
+      <td class="r bold"${r.avgEstimated ? ' title="estimated — no reception data"' : ''}>${avgTxt}</td>
       <td class="r">${cell(r.pts.ESPN)}</td>
       <td class="r">${cell(r.pts.Andy)}</td>
       <td class="r">${cell(r.pts.Mike)}</td>
@@ -1085,6 +1211,115 @@ document.getElementById('pod-filters').addEventListener('click', e => {
 renderPodcasts();
 
 /* ══════════════════════════════════════════════
+   PLAYER LOOKUP
+   Search index is state.rankingsCombined (the same per-player merge
+   used by the Rankings tab), so any player known to any source is
+   findable regardless of which tab built that list first.
+══════════════════════════════════════════════ */
+function lookupMatches(query) {
+  const q = normalizeName(query);
+  if (!q || q.length < 2) return [];
+  if (!state.rankingsCombined.length) buildRankingsCombined();
+  return state.rankingsCombined
+    .filter(r => normalizeName(r.name).includes(q))
+    .slice(0, 8);
+}
+
+function renderLookupDropdown(matches) {
+  const dd = document.getElementById('lookup-dropdown');
+  if (!matches.length) {
+    dd.innerHTML = `<div class="lookup-empty">No players found</div>`;
+    dd.classList.add('open');
+    return;
+  }
+  dd.innerHTML = matches.map((r, i) => `
+    <div class="lookup-item${i === 0 ? ' active' : ''}" data-idx="${i}">
+      <span class="pos pos-${r.pos}">${r.pos}</span>
+      <span>${r.name}</span>
+      <span class="lookup-item-team">${r.team || ''}</span>
+    </div>`).join('');
+  dd.classList.add('open');
+}
+
+function selectLookupPlayer(row) {
+  state.lookupSelected = row;
+  document.getElementById('lookup-input').value = row.name;
+  document.getElementById('lookup-dropdown').classList.remove('open');
+  renderLookupCard();
+}
+
+function renderLookupCard() {
+  const el = document.getElementById('lookup-card');
+  const r = state.lookupSelected;
+  if (!r) {
+    el.innerHTML = `<div class="empty-state">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M11 19a8 8 0 100-16 8 8 0 000 16zM21 21l-4.35-4.35"/></svg>
+      Search for a player above to see their per-source projections
+    </div>`;
+    return;
+  }
+  const fmtLabel = state.format.toUpperCase();
+  const cell = entry => {
+    if (!entry || entry.value == null) return `<span style="color:var(--text3)">—</span>`;
+    const txt = entry.value.toFixed(1);
+    return entry.estimated
+      ? `<span class="pts-estimated" title="estimated — no reception data">~${txt}</span>`
+      : txt;
+  };
+  const sourceRows = ['ESPN', 'Andy', 'Mike', 'Jason'].map(src => `
+    <tr><td>${src}</td><td class="r">${cell(r.pts[src])}</td></tr>`).join('');
+  const avgTxt = r.avg != null ? `${r.avgEstimated ? '~' : ''}${r.avg.toFixed(1)}` : '—';
+  const guideRows = ['ADP', 'MARKET SCORE', 'TARGET / AVOID / DART', 'CONFIDENCE', 'VORP', 'RECEPTION PERCEPTION']
+    .map(label => `<div class="lookup-guide-row"><span class="lookup-guide-label">${label}</span><span class="lookup-guide-val">—</span></div>`)
+    .join('');
+
+  el.innerHTML = `
+    <div class="stat-card" style="margin-bottom:16px;">
+      <div class="lookup-card-head">
+        <span class="pos pos-${r.pos}">${r.pos}</span>
+        <span class="lookup-card-name">${r.name}</span>
+        <span style="color:var(--text3)">${r.team || '—'}</span>
+      </div>
+      <div class="stat-label">AVG PTS (${fmtLabel})${r.avgEstimated ? '<span class="lookup-est" title="estimated — no reception data">~est</span>' : ''}</div>
+      <div class="lookup-avg">${avgTxt}</div>
+    </div>
+    <div class="table-wrap" style="margin-bottom:16px;">
+      <table>
+        <thead><tr><th>SOURCE</th><th class="r">PTS (${fmtLabel})</th></tr></thead>
+        <tbody>${sourceRows}</tbody>
+      </table>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label" style="margin-bottom:10px;">SCOUTING / GUIDE — coming soon</div>
+      ${guideRows}
+    </div>
+  `;
+}
+
+(function initLookup() {
+  const input = document.getElementById('lookup-input');
+  const dropdown = document.getElementById('lookup-dropdown');
+  let currentMatches = [];
+
+  input.addEventListener('input', () => {
+    currentMatches = lookupMatches(input.value);
+    renderLookupDropdown(currentMatches);
+  });
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && currentMatches[0]) selectLookupPlayer(currentMatches[0]);
+  });
+  dropdown.addEventListener('click', e => {
+    const item = e.target.closest('.lookup-item');
+    if (!item) return;
+    const row = currentMatches[Number(item.dataset.idx)];
+    if (row) selectLookupPlayer(row);
+  });
+  document.addEventListener('click', e => {
+    if (!e.target.closest('.lookup-search-wrap')) dropdown.classList.remove('open');
+  });
+})();
+
+/* ══════════════════════════════════════════════
    TAB ROUTING
 ══════════════════════════════════════════════ */
 document.querySelectorAll('.tab').forEach(tab => {
@@ -1230,7 +1465,6 @@ document.querySelectorAll('.tab').forEach(tab => {
 
   state.projections = ESPN_PROJECTIONS;
   state.rankings    = ESPN_RANKINGS;
-  state.scoring     = 'std';
   state.lastSource  = 'ESPN · Mike Clay · May 2026';
 
   renderProjections();
@@ -1243,7 +1477,7 @@ document.querySelectorAll('.tab').forEach(tab => {
 
   const banner = document.createElement('div');
   banner.style.cssText = 'background:#0f1520;border:1px solid #1e2a3a;border-radius:6px;padding:8px 14px;margin-bottom:18px;font-size:10px;color:#4a6080;letter-spacing:0.06em;display:flex;align-items:center;gap:8px;flex-wrap:wrap;';
-  banner.innerHTML = '<span style="color:#2a6099;font-size:13px;">◈</span> DEFAULT DATA: ESPN Fantasy Football 2026 PPR Rankings · Mike Clay (May 2026) · Points estimated by positional rank tier; STD/Half-PPR computed from reception estimates';
+  banner.innerHTML = '<span style="color:#2a6099;font-size:13px;">◈</span> DEFAULT DATA: ESPN Fantasy Football 2026 PPR Rankings · Mike Clay (May 2026) · Points estimated by positional rank tier; STD converted from PPR via per-position reception estimates (~ marks estimated values)';
   document.querySelector('#page-projections .summary-row').before(banner);
 })();
 
