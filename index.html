@@ -513,11 +513,11 @@ td.bold { color: var(--text); font-weight: 600; }
               <th class="r">#</th>
               <th data-col="name">PLAYER <span class="sort-arrow"></span></th>
               <th data-col="team">TEAM <span class="sort-arrow"></span></th>
+              <th data-col="avg" class="r sorted">AVG PTS <span class="sort-arrow">↓</span></th>
               <th data-col="ESPN" class="r">ESPN PTS <span class="sort-arrow"></span></th>
               <th data-col="Andy" class="r">ANDY PTS <span class="sort-arrow"></span></th>
               <th data-col="Mike" class="r">MIKE PTS <span class="sort-arrow"></span></th>
               <th data-col="Jason" class="r">JASON PTS <span class="sort-arrow"></span></th>
-              <th data-col="avg" class="r sorted">AVG PTS <span class="sort-arrow">↓</span></th>
             </tr>
           </thead>
           <tbody id="rank-body">
@@ -820,8 +820,8 @@ function buildRankingsCombined() {
   });
 
   state.rankingsCombined = Object.values(combined).map(r => {
-    const vals = Object.values(r.pts).filter(v => typeof v === 'number');
-    r.avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+    const ptsVals = Object.values(r.pts).filter(v => typeof v === 'number');
+    r.avg = ptsVals.length ? ptsVals.reduce((a, b) => a + b, 0) / ptsVals.length : null;
     return r;
   });
 }
@@ -865,11 +865,11 @@ function renderRankings() {
       <td class="r" style="color:var(--text3)">${i + 1}</td>
       <td><span class="pos pos-${pos}">${pos}</span><span class="bold">${r.name || '—'}</span></td>
       <td style="color:var(--text3)">${r.team || '—'}</td>
+      <td class="r bold">${r.avg != null ? r.avg.toFixed(1) : '—'}</td>
       <td class="r">${cell(r.pts.ESPN)}</td>
       <td class="r">${cell(r.pts.Andy)}</td>
       <td class="r">${cell(r.pts.Mike)}</td>
       <td class="r">${cell(r.pts.Jason)}</td>
-      <td class="r bold">${r.avg != null ? r.avg.toFixed(1) : '—'}</td>
     </tr>`;
   }).join('');
 }
