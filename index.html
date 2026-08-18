@@ -1,0 +1,1189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sam &amp; Rocco Fantasy Football Analytics</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ─── Reset & Root ─────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg:       #0b0d12;
+  --surface:  #10131a;
+  --surface2: #171b26;
+  --surface3: #1e2333;
+  --border:   #252a3d;
+  --border2:  #2f3650;
+  --text:     #e8eaf2;
+  --text2:    #8890aa;
+  --text3:    #4a5070;
+  --green:    #4ade80;
+  --red:      #f87171;
+  --amber:    #fbbf24;
+  --blue:     #60a5fa;
+  --purple:   #a78bfa;
+  --purple2:  #7c3aed;
+  --mono: 'IBM Plex Mono', monospace;
+  --sans: 'IBM Plex Sans', sans-serif;
+}
+
+html, body { height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+/* ─── Scrollbar ─────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+/* ─── Layout Shell ──────────────────────────────────────────── */
+#app { display: flex; flex-direction: column; min-height: 100vh; }
+
+/* ─── Topbar ────────────────────────────────────────────────── */
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 24px; height: 54px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 100;
+  flex-shrink: 0;
+}
+.logo { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+.logo-mark {
+  width: 30px; height: 30px; border-radius: 7px;
+  background: linear-gradient(135deg, #5b21b6, #a78bfa);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; flex-shrink: 0;
+}
+.logo-text { display: flex; flex-direction: column; line-height: 1.1; }
+.logo-name { font-size: 13px; font-weight: 700; letter-spacing: 0.06em; color: var(--text); }
+.logo-sub  { font-size: 9px;  font-weight: 400; letter-spacing: 0.18em; color: var(--purple); opacity: 0.75; }
+
+.topbar-right { display: flex; align-items: center; gap: 10px; }
+.week-pill {
+  background: var(--surface2); border: 1px solid var(--border2);
+  color: var(--text2); font-size: 10px; letter-spacing: 0.1em;
+  padding: 4px 12px; border-radius: 20px;
+}
+#last-updated { font-size: 10px; color: var(--text3); letter-spacing: 0.06em; }
+
+/* ─── Import Bar ────────────────────────────────────────────── */
+.import-bar {
+  background: var(--surface2);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 24px;
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+}
+.import-bar-label { font-size: 10px; letter-spacing: 0.12em; color: var(--text3); }
+.import-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.file-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--surface3); border: 1px solid var(--border2);
+  color: var(--text2); font-family: var(--mono); font-size: 10px;
+  letter-spacing: 0.08em; padding: 5px 12px; border-radius: 5px;
+  cursor: pointer; transition: all .15s;
+}
+.file-btn:hover { border-color: var(--purple); color: var(--purple); }
+.file-btn svg { width: 13px; height: 13px; flex-shrink: 0; }
+
+.file-input { display: none; }
+
+.import-status {
+  font-size: 10px; letter-spacing: 0.06em;
+  padding: 4px 10px; border-radius: 4px;
+  display: none;
+}
+.import-status.ok  { background: #0f2a1a; color: var(--green); display: inline-block; }
+.import-status.err { background: #2a0f0f; color: var(--red);   display: inline-block; }
+
+.template-link {
+  font-size: 10px; color: var(--text3); letter-spacing: 0.06em;
+  cursor: pointer; text-decoration: underline; text-underline-offset: 3px;
+  transition: color .15s;
+}
+.template-link:hover { color: var(--text2); }
+
+/* ─── Nav ───────────────────────────────────────────────────── */
+nav.tabs {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex; overflow-x: auto; flex-shrink: 0;
+  padding: 0 24px;
+}
+nav.tabs::-webkit-scrollbar { height: 0; }
+.tab {
+  padding: 11px 18px; font-size: 10px; letter-spacing: 0.12em;
+  color: var(--text3); border-bottom: 2px solid transparent;
+  cursor: pointer; white-space: nowrap;
+  transition: color .15s, border-color .15s;
+}
+.tab:hover { color: var(--text2); }
+.tab.active { color: var(--purple); border-bottom-color: var(--purple); }
+
+/* ─── Main Content ──────────────────────────────────────────── */
+main { flex: 1; padding: 24px; }
+.page { display: none; }
+.page.active { display: block; }
+
+/* ─── Summary Cards ─────────────────────────────────────────── */
+.summary-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px; margin-bottom: 24px;
+}
+.stat-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 14px 16px;
+}
+.stat-label { font-size: 9px; letter-spacing: 0.14em; color: var(--text3); margin-bottom: 6px; }
+.stat-val   { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; }
+.stat-sub   { font-size: 10px; color: var(--text2); margin-top: 3px; }
+.c-green  { color: var(--green); }
+.c-blue   { color: var(--blue);  }
+.c-amber  { color: var(--amber); }
+.c-purple { color: var(--purple); }
+
+/* ─── Section Header ────────────────────────────────────────── */
+.section-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 14px; gap: 12px; flex-wrap: wrap;
+}
+.section-title { font-size: 10px; letter-spacing: 0.14em; color: var(--text2); font-weight: 600; }
+.filter-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.filter-btn {
+  background: var(--surface2); border: 1px solid var(--border);
+  color: var(--text3); font-family: var(--mono); font-size: 10px;
+  letter-spacing: 0.08em; padding: 4px 10px; border-radius: 4px;
+  cursor: pointer; transition: all .15s;
+}
+.filter-btn:hover, .filter-btn.active {
+  background: var(--surface3); border-color: var(--border2); color: var(--text);
+}
+
+/* ─── Data Table ────────────────────────────────────────────── */
+.table-wrap { overflow-x: auto; border-radius: 8px; border: 1px solid var(--border); }
+table {
+  width: 100%; border-collapse: collapse;
+  font-size: 12px; min-width: 640px;
+}
+thead th {
+  background: var(--surface2);
+  text-align: left; font-size: 9px; letter-spacing: 0.12em;
+  color: var(--text3); padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600; white-space: nowrap;
+  cursor: pointer; user-select: none;
+  transition: color .15s;
+}
+thead th:hover { color: var(--text2); }
+thead th.r { text-align: right; }
+thead th.sorted { color: var(--purple); }
+thead th .sort-arrow { margin-left: 4px; opacity: 0.6; }
+tbody tr { transition: background .1s; }
+tbody tr:hover td { background: var(--surface2); }
+tbody td {
+  padding: 10px 12px; border-bottom: 1px solid var(--border);
+  color: var(--text2);
+}
+tbody tr:last-child td { border-bottom: none; }
+td.r { text-align: right; }
+td.bold { color: var(--text); font-weight: 600; }
+
+/* Position tags */
+.pos {
+  display: inline-block; font-size: 9px; font-weight: 700;
+  letter-spacing: 0.06em; padding: 2px 6px; border-radius: 3px;
+  margin-right: 6px;
+}
+.pos-QB { background: #2d1a3a; color: #c084fc; }
+.pos-RB { background: #1a2e1a; color: #4ade80; }
+.pos-WR { background: #1a2535; color: #60a5fa; }
+.pos-TE { background: #2e2a1a; color: #fbbf24; }
+.pos-K  { background: #2e1a1a; color: #f87171; }
+.pos-DST{ background: #1e1a2e; color: #a78bfa; }
+
+/* Confidence bar */
+.conf-cell { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.conf-track { width: 56px; height: 4px; background: var(--border); border-radius: 2px; flex-shrink: 0; }
+.conf-fill  { height: 100%; border-radius: 2px; background: var(--purple); }
+.conf-pct   { font-size: 10px; color: var(--text3); min-width: 28px; text-align: right; }
+
+/* Trend */
+.up-val   { color: var(--green); }
+.down-val { color: var(--red);   }
+
+/* Empty state */
+.empty-state {
+  text-align: center; padding: 60px 20px;
+  color: var(--text3); font-size: 12px; letter-spacing: 0.06em;
+}
+.empty-state svg { width: 40px; height: 40px; margin: 0 auto 14px; display: block; opacity: 0.3; }
+.empty-state p { margin-top: 8px; font-size: 11px; }
+
+/* ─── Rankings ───────────────────────────────────────────────── */
+.rank-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+.rank-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 14px;
+}
+.rank-card-head {
+  font-size: 9px; letter-spacing: 0.14em; color: var(--text3);
+  font-weight: 600; margin-bottom: 10px;
+}
+.rank-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 0; border-bottom: 1px solid var(--border);
+}
+.rank-row:last-child { border-bottom: none; }
+.rank-n    { font-size: 11px; color: var(--text3); width: 16px; text-align: center; flex-shrink: 0; }
+.rank-info { flex: 1; }
+.rank-name { font-size: 12px; color: var(--text); font-weight: 600; }
+.rank-meta { font-size: 10px; color: var(--text3); margin-top: 1px; }
+.rank-pts  { font-size: 13px; font-weight: 700; color: var(--text); }
+.rank-chg  { font-size: 10px; width: 26px; text-align: right; flex-shrink: 0; }
+
+/* ─── Start / Sit ────────────────────────────────────────────── */
+.ss-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 600px) { .ss-wrap { grid-template-columns: 1fr; } }
+.ss-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 16px;
+}
+.ss-head {
+  font-size: 10px; letter-spacing: 0.12em; font-weight: 700;
+  margin-bottom: 14px; display: flex; align-items: center; gap: 8px;
+}
+.ss-start { color: var(--green); }
+.ss-sit   { color: var(--red);   }
+.ss-player {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 0; border-bottom: 1px solid var(--border);
+}
+.ss-player:last-child { border-bottom: none; }
+.ss-avatar {
+  width: 36px; height: 36px; border-radius: 7px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 700; flex-shrink: 0; letter-spacing: 0.04em;
+}
+.ss-info  { flex: 1; }
+.ss-name  { font-size: 12px; color: var(--text); font-weight: 600; }
+.ss-meta  { font-size: 10px; color: var(--text3); margin-top: 2px; }
+.ss-pts   { font-size: 16px; font-weight: 700; }
+
+/* ─── News ───────────────────────────────────────────────────── */
+.news-list { display: flex; flex-direction: column; gap: 10px; }
+.news-item {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 14px 16px;
+  display: flex; gap: 14px; align-items: flex-start;
+}
+.news-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 4px; }
+.news-body { flex: 1; }
+.news-hed  { font-size: 12px; color: var(--text); line-height: 1.55; margin-bottom: 5px; font-family: var(--sans); }
+.news-foot { font-size: 10px; color: var(--text3); display: flex; gap: 10px; flex-wrap: wrap; }
+.news-tag  { letter-spacing: 0.06em; }
+.imp-badge {
+  font-size: 10px; font-weight: 700; padding: 2px 8px;
+  border-radius: 3px; align-self: flex-start; flex-shrink: 0; letter-spacing: 0.06em;
+}
+.imp-HIGH { background: #2d1a1a; color: #f87171; }
+.imp-MED  { background: #2d2a1a; color: #fbbf24; }
+.imp-LOW  { background: #1a2a1a; color: #4ade80; }
+
+/* ─── Import Guide Page ─────────────────────────────────────── */
+.guide-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+.guide-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 18px 20px;
+}
+.guide-card h3 {
+  font-size: 11px; letter-spacing: 0.1em; color: var(--text); font-weight: 600;
+  margin-bottom: 10px; display: flex; align-items: center; gap: 8px;
+}
+.guide-card h3 span { color: var(--purple); }
+.guide-card p { font-size: 11px; color: var(--text2); line-height: 1.6; font-family: var(--sans); }
+.code-block {
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; padding: 12px 14px; margin-top: 12px;
+  font-size: 11px; color: var(--text2); line-height: 1.7;
+  overflow-x: auto; white-space: pre;
+}
+.code-block .kw  { color: var(--purple); }
+.code-block .str { color: var(--green);  }
+.code-block .fn  { color: var(--blue);   }
+.code-block .cm  { color: var(--text3);  }
+.col-list {
+  margin-top: 10px; display: flex; flex-direction: column; gap: 5px;
+}
+.col-item {
+  display: flex; gap: 10px; align-items: baseline;
+  font-size: 11px;
+}
+.col-name { color: var(--blue); font-family: var(--mono); font-size: 10px; min-width: 100px; flex-shrink: 0; }
+.col-desc { color: var(--text2); font-family: var(--sans); }
+.col-req  { font-size: 9px; color: var(--amber); margin-left: auto; letter-spacing: 0.06em; flex-shrink: 0; }
+
+/* ─── Misc ───────────────────────────────────────────────────── */
+.mt16 { margin-top: 16px; }
+.mt24 { margin-top: 24px; }
+.chip {
+  display: inline-block; font-size: 9px; letter-spacing: 0.1em;
+  padding: 3px 8px; border-radius: 3px;
+  background: var(--surface3); color: var(--text3); border: 1px solid var(--border);
+}
+
+/* ─── Podcast / Scouting ─────────────────────────────────────── */
+.pod-feed { display: flex; flex-direction: column; gap: 12px; }
+.pod-item {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; overflow: hidden;
+}
+.pod-header {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 16px; cursor: pointer;
+  transition: background .12s;
+}
+.pod-header:hover { background: var(--surface2); }
+.pod-logo {
+  width: 44px; height: 44px; border-radius: 8px;
+  flex-shrink: 0; display: flex; align-items: center;
+  justify-content: center; font-size: 18px;
+  font-weight: 700;
+}
+.pod-logo-lr { background: #1a1a2e; color: #a78bfa; border: 1px solid #2d2060; }
+.pod-logo-ff { background: #1a2010; color: #4ade80; border: 1px solid #1e3a12; }
+.pod-meta { flex: 1; }
+.pod-show  { font-size: 9px; letter-spacing: 0.12em; color: var(--text3); margin-bottom: 3px; }
+.pod-title { font-size: 13px; color: var(--text); font-weight: 600; line-height: 1.4; }
+.pod-date  { font-size: 10px; color: var(--text3); margin-top: 3px; }
+.pod-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.pod-listen {
+  font-size: 10px; letter-spacing: 0.08em; color: var(--purple);
+  border: 1px solid #3a2860; background: #1a1330;
+  padding: 4px 12px; border-radius: 4px; text-decoration: none;
+  transition: all .15s; white-space: nowrap;
+}
+.pod-listen:hover { background: #241a42; }
+.pod-chevron {
+  font-size: 10px; color: var(--text3);
+  transition: transform .2s;
+}
+.pod-chevron.open { transform: rotate(180deg); }
+.pod-sparknotes {
+  display: none; padding: 0 16px 16px 74px;
+  border-top: 1px solid var(--border);
+}
+.pod-sparknotes.open { display: block; }
+.pod-sparknotes-head {
+  font-size: 9px; letter-spacing: 0.12em; color: var(--text3);
+  margin: 12px 0 8px; font-weight: 600;
+}
+.pod-bullet {
+  display: flex; gap: 8px; margin-bottom: 6px;
+  font-size: 11px; color: var(--text2); line-height: 1.55;
+  font-family: var(--sans);
+}
+.pod-bullet::before {
+  content: '·'; color: var(--purple); flex-shrink: 0; margin-top: 1px;
+}
+
+/* ─── Scoring Toggle ─────────────────────────────────────────── */
+.scoring-toggle {
+  display: flex; align-items: center; gap: 2px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 6px; padding: 2px; flex-shrink: 0;
+}
+.scoring-btn {
+  background: transparent; border: none;
+  color: var(--text3); font-family: var(--mono); font-size: 10px;
+  letter-spacing: 0.1em; padding: 4px 11px; border-radius: 4px;
+  cursor: pointer; transition: all .15s; white-space: nowrap;
+}
+.scoring-btn:hover { color: var(--text2); }
+.scoring-btn.active {
+  background: var(--surface3); color: var(--purple);
+  box-shadow: 0 0 0 1px var(--border2);
+}
+.section-head-row {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 10px; margin-bottom: 14px;
+}
+.section-head-left  { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.section-head-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ── Topbar ── -->
+  <header class="topbar">
+    <a class="logo" href="#">
+      <div class="logo-mark">◈</div>
+      <div class="logo-text">
+        <span class="logo-name">SAM &amp; ROCCO</span>
+        <span class="logo-sub">FANTASY FOOTBALL ANALYTICS</span>
+      </div>
+    </a>
+    <div class="topbar-right">
+      <span id="last-updated">no data loaded</span>
+      <span class="week-pill" id="week-pill">WEEK —</span>
+    </div>
+  </header>
+
+  <!-- ── Nav ── -->
+  <nav class="tabs">
+    <div class="tab active" data-page="projections">PROJECTIONS</div>
+    <div class="tab" data-page="rankings">RANKINGS</div>
+    <div class="tab" data-page="news">INJURIES &amp; NEWS</div>
+    <div class="tab" data-page="scouting">SCOUTING INFO</div>
+  </nav>
+
+  <!-- ── Pages ── -->
+  <main>
+
+    <!-- PROJECTIONS -->
+    <section class="page active" id="page-projections">
+      <div class="summary-row" id="proj-summary">
+        <div class="stat-card"><div class="stat-label">QB REPLACEMENT</div><div class="stat-val c-purple" id="s-rb-rl">—</div><div class="stat-sub" id="s-rb-rl-name">QB13 baseline</div></div>
+        <div class="stat-card"><div class="stat-label">RB REPLACEMENT</div><div class="stat-val c-green" id="s-wr-rl">—</div><div class="stat-sub" id="s-wr-rl-name">RB25 baseline</div></div>
+        <div class="stat-card"><div class="stat-label">WR REPLACEMENT</div><div class="stat-val c-blue" id="s-te-rl">—</div><div class="stat-sub" id="s-te-rl-name">WR37 baseline</div></div>
+        <div class="stat-card"><div class="stat-label">LAST DATA LOAD</div><div class="stat-val" id="s-last-load" style="font-size:15px;color:var(--text2)">—</div><div class="stat-sub" id="s-last-source">no data loaded</div></div>
+      </div>
+
+      <div class="section-head-row">
+        <div class="section-head-left">
+          <span class="section-title">SEASON PROJECTIONS</span>
+          <div class="filter-row" id="pos-filters">
+            <button class="filter-btn active" data-pos="ALL">ALL</button>
+            <button class="filter-btn" data-pos="QB">QB</button>
+            <button class="filter-btn" data-pos="RB">RB</button>
+            <button class="filter-btn" data-pos="WR">WR</button>
+            <button class="filter-btn" data-pos="TE">TE</button>
+            <button class="filter-btn" data-pos="K">K</button>
+            <button class="filter-btn" data-pos="DST">DST</button>
+          </div>
+        </div>
+        <div class="section-head-right">
+          <div class="scoring-toggle" id="scoring-toggle">
+            <button class="scoring-btn active" data-scoring="std"  onclick="setScoringMode('std')">STD</button>
+            <button class="scoring-btn"        data-scoring="hppr" onclick="setScoringMode('hppr')">HALF-PPR</button>
+            <button class="scoring-btn"        data-scoring="ppr"  onclick="setScoringMode('ppr')">PPR</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table id="proj-table">
+          <thead>
+            <tr>
+              <th data-col="rank" class="sorted"># <span class="sort-arrow">↑</span></th>
+              <th data-col="name">PLAYER</th>
+              <th data-col="team">TEAM</th>
+              <th data-col="opp">OPP</th>
+              <th data-col="proj" class="r">PROJ <span class="sort-arrow"></span></th>
+              <th data-col="floor" class="r">FLOOR</th>
+              <th data-col="ceil" class="r">CEIL</th>
+              <th data-col="conf" class="r">CONFIDENCE</th>
+              <th data-col="notes">NOTES</th>
+            </tr>
+          </thead>
+          <tbody id="proj-body">
+            <tr><td colspan="9"><div class="empty-state">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M9 17H5a2 2 0 00-2 2v0a2 2 0 002 2h14a2 2 0 002-2v0a2 2 0 00-2-2h-4M9 17V9M15 17V5M9 9H5M15 5h4"/></svg>
+              Upload a projections CSV to get started
+              <p>Use the import bar above or see the Import Guide tab for the expected format.</p>
+            </div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- RANKINGS -->
+    <section class="page" id="page-rankings">
+      <div class="section-head-row">
+        <div class="section-head-left">
+          <span class="section-title">POSITIONAL RANKINGS</span>
+          <span id="rank-week-label" class="chip">WEEK —</span>
+        </div>
+        <div class="section-head-right">
+          <div class="scoring-toggle">
+            <button class="scoring-btn active" data-scoring="std"  onclick="setScoringMode('std')">STD</button>
+            <button class="scoring-btn"        data-scoring="hppr" onclick="setScoringMode('hppr')">HALF-PPR</button>
+            <button class="scoring-btn"        data-scoring="ppr"  onclick="setScoringMode('ppr')">PPR</button>
+          </div>
+        </div>
+      </div>
+      <div class="rank-grid" id="rank-grid">
+        <div class="empty-state" style="grid-column:1/-1">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+          Upload a rankings CSV to populate this view
+          <p>See the Import Guide tab for the expected format.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- NEWS -->
+    <section class="page" id="page-news">
+      <div class="section-head">
+        <span class="section-title">INJURIES &amp; NEWS FEED</span>
+        <div class="filter-row" id="news-filters">
+          <button class="filter-btn active" data-imp="ALL">ALL</button>
+          <button class="filter-btn imp-HIGH-btn" data-imp="HIGH">HIGH</button>
+          <button class="filter-btn" data-imp="MED">MED</button>
+          <button class="filter-btn" data-imp="LOW">LOW</button>
+        </div>
+      </div>
+      <div class="news-list" id="news-list">
+        <div class="empty-state">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10l6 6v10a2 2 0 01-2 2zM13 2v6h6M9 13h6M9 17h4"/></svg>
+          No news loaded
+        </div>
+      </div>
+    </section>
+
+    <!-- SCOUTING INFO -->
+    <section class="page" id="page-scouting">
+      <div class="section-head">
+        <span class="section-title">SCOUTING INFO · PODCAST FEED</span>
+        <div class="filter-row" id="pod-filters">
+          <button class="filter-btn active" data-pod="ALL">ALL</button>
+          <button class="filter-btn" data-pod="LR">LATE ROUND</button>
+          <button class="filter-btn" data-pod="FF">FANTASY FOOTBALLERS</button>
+        </div>
+      </div>
+      <div id="pod-feed"></div>
+    </section>
+
+  </main>
+
+        <!-- R code snippet -->
+        <div class="guide-card">
+          <h3><span>04</span> R EXPORT SNIPPET</h3>
+          <p>After building your model in R, export each data frame as a CSV. Drop the files in your repo's <code>/data/</code> folder and upload via the import bar.</p>
+          <div class="code-block"><span class="cm"># Install once</span>
+<span class="fn">library</span>(tidyverse)
+
+<span class="cm"># Your projection model output</span>
+projections <span class="kw">&lt;-</span> model_output <span class="kw">|&gt;</span>
+  <span class="fn">select</span>(name, pos, team, opp,
+         proj, floor, ceil, conf,
+         week, notes)
+
+<span class="cm"># Write to CSV</span>
+<span class="fn">write_csv</span>(projections,
+  <span class="str">"projections.csv"</span>)
+
+<span class="fn">write_csv</span>(rankings,
+  <span class="str">"rankings.csv"</span>)
+
+<span class="fn">write_csv</span>(news_feed,
+  <span class="str">"news.csv"</span>)</div>
+        </div>
+
+
+<script>
+/* ══════════════════════════════════════════════
+   STATE
+══════════════════════════════════════════════ */
+const state = {
+  projections: [],
+  rankings: [],
+  news: [],
+  projSort: { col: 'proj', dir: 'desc' },
+  projPos: 'ALL',
+  newsImp: 'ALL',
+  scoring: 'std',   // 'std' | 'hppr' | 'ppr'
+};
+
+/* ══════════════════════════════════════════════
+   CSV PARSER
+══════════════════════════════════════════════ */
+function parseCSV(text) {
+  const lines = text.trim().split(/\r?\n/);
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, '').toLowerCase());
+  return lines.slice(1).map(line => {
+    // Handle quoted fields with commas
+    const fields = [];
+    let cur = '', inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      if (line[i] === '"') { inQ = !inQ; }
+      else if (line[i] === ',' && !inQ) { fields.push(cur.trim()); cur = ''; }
+      else { cur += line[i]; }
+    }
+    fields.push(cur.trim());
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = (fields[i] || '').replace(/^"|"$/g, '').trim(); });
+    return obj;
+  }).filter(r => Object.values(r).some(v => v !== ''));
+}
+
+function num(v, def = 0) { const n = parseFloat(v); return isNaN(n) ? def : n; }
+function fmt(v, dec = 1) { const n = parseFloat(v); return isNaN(n) ? '—' : n.toFixed(dec); }
+
+/* ══════════════════════════════════════════════
+   SCORING MODE HELPERS
+   For uploaded CSVs: if proj_std/proj_hppr/proj_ppr columns exist, use them.
+   Otherwise fall back to a reception-based estimate from proj (PPR baseline).
+   RBs ~50 rec/yr, WRs ~90 rec/yr, TEs ~55 rec/yr, QBs 0 rec bonus.
+   Half-PPR = proj - (recs * 0.5), Std = proj - recs
+   (These apply only to default ESPN data where proj is PPR-based.)
+══════════════════════════════════════════════ */
+const REC_ESTIMATES = { QB: 0, RB: 50, WR: 90, TE: 55, K: 0, DST: 0 };
+
+function scoredVal(player, field) {
+  // field = 'proj' | 'floor' | 'ceil'
+  const mode = state.scoring;
+  // If CSV uploaded explicit columns, use them
+  const explicitKey = field + '_' + mode; // e.g. proj_std
+  if (player[explicitKey] !== undefined) return num(player[explicitKey]);
+  // Fall back to estimate from PPR base value
+  const base = num(player[field]);
+  if (!base) return base;
+  const pos = (player.pos || '').toUpperCase();
+  const recs = REC_ESTIMATES[pos] || 0;
+  if (mode === 'ppr')  return Math.round(base * 10) / 10;
+  if (mode === 'hppr') return Math.round((base - recs * 0.5) * 10) / 10;
+  return Math.round((base - recs) * 10) / 10; // std
+}
+
+function setScoringMode(mode) {
+  state.scoring = mode;
+  document.querySelectorAll('.scoring-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.scoring === mode);
+  });
+  renderProjections();
+  renderRankings();
+  updateSummary();
+}
+
+/* ══════════════════════════════════════════════
+   SUMMARY CARDS
+══════════════════════════════════════════════ */
+function updateSummary() {
+  const d = state.projections;
+  if (!d.length) return;
+
+  // Replacement level baselines: QB13, RB25, WR37, TE13
+  const byPos = {};
+  d.forEach(r => {
+    const p = (r.pos||'').toUpperCase();
+    if (!byPos[p]) byPos[p] = [];
+    byPos[p].push(scoredVal(r,'proj'));
+  });
+  const rl = (pos, n) => {
+    const arr = (byPos[pos]||[]).sort((a,b)=>b-a);
+    return arr[n-1] !== undefined ? arr[n-1].toFixed(1) : '—';
+  };
+  const rlName = (pos, n) => {
+    const arr = [...d].filter(r=>(r.pos||'').toUpperCase()===pos)
+      .sort((a,b)=>scoredVal(b,'proj')-scoredVal(a,'proj'));
+    return arr[n-1] ? arr[n-1].name.split(' ').pop() : '';
+  };
+
+  document.getElementById('s-rb-rl').textContent      = rl('QB', 13);
+  document.getElementById('s-rb-rl-name').textContent = rlName('QB',13) ? `QB13 · ${rlName('QB',13)}` : 'QB13 baseline';
+  document.getElementById('s-wr-rl').textContent      = rl('RB', 25);
+  document.getElementById('s-wr-rl-name').textContent = rlName('RB',25) ? `RB25 · ${rlName('RB',25)}` : 'RB25 baseline';
+  document.getElementById('s-te-rl').textContent      = rl('WR', 37);
+  document.getElementById('s-te-rl-name').textContent = rlName('WR',37) ? `WR37 · ${rlName('WR',37)}` : 'WR37 baseline';
+
+  const now = new Date();
+  document.getElementById('s-last-load').textContent  = now.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+  document.getElementById('s-last-source').textContent = state.lastSource || 'ESPN · Mike Clay · May 2026';
+}
+
+/* ══════════════════════════════════════════════
+   PROJECTIONS TABLE
+══════════════════════════════════════════════ */
+const posAvatarBg = { QB:'#2d1a3a', RB:'#1a2e1a', WR:'#1a2535', TE:'#2e2a1a', K:'#2e1a1a', DST:'#1e1a2e' };
+const posAvatarFg = { QB:'#c084fc', RB:'#4ade80', WR:'#60a5fa', TE:'#fbbf24', K:'#f87171', DST:'#a78bfa' };
+
+function renderProjections() {
+  const { projections, projSort, projPos } = state;
+  let rows = projPos === 'ALL' ? [...projections] : projections.filter(r => r.pos === projPos);
+
+  rows.sort((a, b) => {
+    let av, bv;
+    if (['proj','floor','ceil'].includes(projSort.col)) {
+      av = scoredVal(a, projSort.col);
+      bv = scoredVal(b, projSort.col);
+    } else {
+      av = a[projSort.col] || '';
+      bv = b[projSort.col] || '';
+      const an = parseFloat(av), bn = parseFloat(bv);
+      if (!isNaN(an) && !isNaN(bn)) { av = an; bv = bn; }
+    }
+    if (av < bv) return projSort.dir === 'asc' ? -1 : 1;
+    if (av > bv) return projSort.dir === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  const tbody = document.getElementById('proj-body');
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state">No players found for this position filter.</div></td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = rows.map((r, i) => {
+    const conf = num(r.conf, 0);
+    const pos = (r.pos || '').toUpperCase();
+    const pv = scoredVal(r,'proj');
+    const fv = scoredVal(r,'floor');
+    const cv = scoredVal(r,'ceil');
+    return `<tr>
+      <td class="bold">${i + 1}</td>
+      <td><span class="pos pos-${pos}">${pos}</span><span class="bold">${r.name || '—'}</span></td>
+      <td>${r.team || '—'}</td>
+      <td style="color:var(--text3)">${r.opp || '—'}</td>
+      <td class="r bold">${fmt(pv)}</td>
+      <td class="r" style="color:var(--text3)">${fv ? fmt(fv) : '—'}</td>
+      <td class="r" style="color:var(--text2)">${cv ? fmt(cv) : '—'}</td>
+      <td class="r">${r.conf ? `<div class="conf-cell"><span class="conf-pct">${conf}%</span><div class="conf-track"><div class="conf-fill" style="width:${Math.min(conf,100)}%"></div></div></div>` : '—'}</td>
+      <td style="color:var(--text3);font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.notes || ''}</td>
+    </tr>`;
+  }).join('');
+}
+
+/* Sort headers */
+document.querySelectorAll('#proj-table thead th[data-col]').forEach(th => {
+  th.addEventListener('click', () => {
+    const col = th.dataset.col;
+    if (state.projSort.col === col) {
+      state.projSort.dir = state.projSort.dir === 'asc' ? 'desc' : 'asc';
+    } else {
+      state.projSort.col = col;
+      state.projSort.dir = 'desc';
+    }
+    document.querySelectorAll('#proj-table thead th').forEach(t => {
+      t.classList.remove('sorted');
+      const arr = t.querySelector('.sort-arrow');
+      if (arr) arr.textContent = '';
+    });
+    th.classList.add('sorted');
+    const arrow = th.querySelector('.sort-arrow');
+    if (arrow) arrow.textContent = state.projSort.dir === 'asc' ? '↑' : '↓';
+    renderProjections();
+  });
+});
+
+/* Position filters */
+document.getElementById('pos-filters').addEventListener('click', e => {
+  const btn = e.target.closest('.filter-btn');
+  if (!btn) return;
+  document.querySelectorAll('#pos-filters .filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  state.projPos = btn.dataset.pos;
+  renderProjections();
+});
+
+/* ══════════════════════════════════════════════
+   RANKINGS
+══════════════════════════════════════════════ */
+function renderRankings() {
+  const grid = document.getElementById('rank-grid');
+  const rows = state.rankings;
+  if (!rows.length) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+      Upload a rankings CSV to populate this view</div>`;
+    return;
+  }
+
+  const byPos = {};
+  rows.forEach(r => {
+    const p = (r.pos || 'UNK').toUpperCase();
+    if (!byPos[p]) byPos[p] = [];
+    byPos[p].push(r);
+  });
+  Object.values(byPos).forEach(arr => arr.sort((a,b) => num(a.rank,99) - num(b.rank,99)));
+
+  grid.innerHTML = Object.entries(byPos).map(([pos, players]) => `
+    <div class="rank-card">
+      <div class="rank-card-head">${pos} RANKINGS</div>
+      ${players.slice(0, 10).map(p => {
+        const chg = parseInt(p.change || 0);
+        const pv = scoredVal(p,'proj');
+        return `<div class="rank-row">
+          <div class="rank-n">${p.rank}</div>
+          <div class="rank-info">
+            <div class="rank-name">${p.name || '—'}</div>
+            <div class="rank-meta">${p.team || ''}</div>
+          </div>
+          <div class="rank-pts">${pv ? fmt(pv) : ''}</div>
+          <div class="rank-chg ${chg > 0 ? 'up-val' : chg < 0 ? 'down-val' : ''}">${chg > 0 ? '▲'+chg : chg < 0 ? '▼'+Math.abs(chg) : '—'}</div>
+        </div>`;
+      }).join('')}
+    </div>`).join('');
+}
+
+/* ══════════════════════════════════════════════
+   NEWS
+══════════════════════════════════════════════ */
+const impDot = { HIGH: '#f87171', MED: '#fbbf24', LOW: '#4ade80' };
+
+function renderNews() {
+  const el = document.getElementById('news-list');
+  let rows = state.news;
+  if (!rows.length) {
+    el.innerHTML = `<div class="empty-state">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10l6 6v10a2 2 0 01-2 2zM13 2v6h6M9 13h6M9 17h4"/></svg>
+      Upload a news CSV to populate the feed</div>`;
+    return;
+  }
+  if (state.newsImp !== 'ALL') {
+    rows = rows.filter(r => (r.impact||'').toUpperCase() === state.newsImp);
+  }
+  el.innerHTML = rows.map(r => {
+    const imp = (r.impact || 'MED').toUpperCase();
+    const dot = impDot[imp] || '#8890aa';
+    const tags = [r.tag, r.pos].filter(Boolean);
+    return `<div class="news-item">
+      <div class="news-dot" style="background:${dot}"></div>
+      <div class="news-body">
+        <div class="news-hed">${r.headline || '—'}</div>
+        <div class="news-foot">
+          <span>${r.timestamp || r.player || ''}</span>
+          ${tags.map(t => `<span class="news-tag">${t.toUpperCase()}</span>`).join('')}
+        </div>
+      </div>
+      <span class="imp-badge imp-${imp}">${imp}</span>
+    </div>`;
+  }).join('');
+}
+
+document.getElementById('news-filters').addEventListener('click', e => {
+  const btn = e.target.closest('.filter-btn');
+  if (!btn) return;
+  document.querySelectorAll('#news-filters .filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  state.newsImp = btn.dataset.imp;
+  renderNews();
+});
+
+/* ══════════════════════════════════════════════
+   PODCAST / SCOUTING INFO
+══════════════════════════════════════════════ */
+const PODCASTS = [
+  {
+    id:'lr-1099', pod:'LR', show:'Late Round FF Podcast', date:'2026-05-20',
+    dateLabel:'May 20, 2026',
+    title:'Ep. 1099: Mailbag — Heavier Personnel, Tyler Shough & Draft-Day Values',
+    url:'https://podcasts.apple.com/us/podcast/the-late-round-fantasy-football-podcast/id1224965828',
+    notes:[
+      'JJ breaks down the growing heavier personnel trend across the NFL and what it means for RB and TE values in 2026 drafts.',
+      "Tyler Shough's landing spot in New Orleans discussed — JJ sees sneaky QB upside if the Saints' offense clicks.",
+      'Mailbag covers draft-day values: players consistently going later than their talent warrants heading into 2026.',
+      'Kaelon Black prospect profile — why models disagree on him and where he stands in rookie rankings.',
+    ]
+  },
+  {
+    id:'ff-519', pod:'FF', show:'The Fantasy Footballers', date:'2026-05-19',
+    dateLabel:'May 19, 2026',
+    title:'Mock Draft! On-The-Clock Decisions & ADP Standouts for 2026',
+    url:'https://podcasts.apple.com/us/podcast/fantasy-footballers-fantasy-football-podcast/id917453719',
+    notes:[
+      'Full mock draft with live on-the-clock decisions — great for seeing how the hosts value players relative to current ADP.',
+      'Several players identified as significantly overvalued or undervalued at their current draft positions heading into summer.',
+      'Hosts highlight which positions offer the best value in early, middle, and late rounds of 2026 drafts.',
+      'Discussion of draft strategies — zero RB, hero RB, and how to react when positional runs happen.',
+    ]
+  },
+  {
+    id:'ff-514', pod:'FF', show:'The Fantasy Footballers', date:'2026-05-14',
+    dateLabel:'May 14, 2026',
+    title:'Dynasty Week: Rookie Targets & 2026 Dynasty Strategy',
+    url:'https://podcasts.apple.com/us/podcast/fantasy-footballers-fantasy-football-podcast/id917453719',
+    notes:[
+      'Dynasty Week focus — full breakdown of 2026 rookie class and where each player fits into dynasty roster construction.',
+      'Hosts discuss which veterans are buy-low candidates following a down 2025 season and who has dynasty sell value.',
+      'Wide receiver class evaluation: depth is strong but top-end talent is debated relative to recent classes.',
+      'Colston Loveland and Tyler Warren discussed as the most intriguing young TE options in dynasty.',
+    ]
+  },
+  {
+    id:'ff-512', pod:'FF', show:'The Fantasy Footballers', date:'2026-05-12',
+    dateLabel:'May 12, 2026',
+    title:'Dynasty Trades: Buy/Sell Players + Breece Hall Contract Reaction',
+    url:'https://podcasts.apple.com/us/podcast/fantasy-footballers-fantasy-football-podcast/id917453719',
+    notes:[
+      'Andy, Mike, and Jason each pick dynasty trade targets and players to move off — Harold Fannin Jr. highlighted as a buy.',
+      "Breece Hall's contract extension with the Jets discussed — cementing his role but QB situation remains the ceiling limiter.",
+      'George Pickens to Dallas deep dive — how reuniting with Dak Prescott changes his dynasty and redraft outlook.',
+      "Common dynasty mistakes: overvaluing age-declining veterans and chasing last year's breakout players.",
+    ]
+  },
+  {
+    id:'lr-1098', pod:'LR', show:'Late Round FF Podcast', date:'2026-05-08',
+    dateLabel:'May 8, 2026',
+    title:'Ep. 1098: Post-Draft Rookie Rankings — Tiers & How to Attack Your Draft',
+    url:'https://podcasts.apple.com/us/podcast/the-late-round-fantasy-football-podcast/id1224965828',
+    notes:[
+      'JJ reveals updated post-NFL Draft rookie rankings with full tier breakdowns now that landing spots are known.',
+      'Explanation of the methodology behind the tiers — why some highly drafted players rank lower than expected.',
+      'Discussion of which rookies have the clearest path to immediate production vs. developmental timelines.',
+      'Ashton Jeanty (LV) and Omarion Hampton (LAC) highlighted as the top two dynasty-relevant rookie RBs.',
+    ]
+  },
+  {
+    id:'ff-507', pod:'FF', show:'The Fantasy Footballers', date:'2026-05-07',
+    dateLabel:'May 7, 2026',
+    title:'Post-Draft Overreactions: Overvalued & Undervalued Players for 2026',
+    url:'https://podcasts.apple.com/us/podcast/fantasy-footballers-fantasy-football-podcast/id917453719',
+    notes:[
+      'Hosts identify which players fantasy managers are overreacting to following the NFL Draft — both up and down.',
+      'Rookie landing spot analysis: which first-round picks landed in situations that accelerate or hinder fantasy value.',
+      'Veteran players whose ADP has moved too dramatically in either direction following draft-weekend news.',
+      'Specific call-outs on WR situations where target share math does not work out at current draft prices.',
+    ]
+  },
+  {
+    id:'lr-1095', pod:'LR', show:'Late Round FF Podcast', date:'2026-04-28',
+    dateLabel:'Apr 28, 2026',
+    title:'Ep. 1095: NFL Draft Breakdown — What Front Offices Were Thinking',
+    url:'https://podcasts.apple.com/us/podcast/the-late-round-fantasy-football-podcast/id1224965828',
+    notes:[
+      'JJ goes team-by-team through the NFL Draft analyzing front-office logic rather than just listing rookie rankings.',
+      'Key insight: draft capital spent on skill positions signals usage intent — helps calibrate rookie projections.',
+      'Discussion of which teams over-drafted at RB and WR and what that means for veterans on those rosters.',
+      'Jeremiyah Love and Cam Skattebo highlighted as the most intriguing late-round dynasty RB dart throws.',
+    ]
+  },
+];
+
+let activePodFilter = 'ALL';
+
+function renderPodcasts() {
+  const feed = document.getElementById('pod-feed');
+  const filtered = activePodFilter === 'ALL' ? PODCASTS : PODCASTS.filter(p => p.pod === activePodFilter);
+  feed.innerHTML = '<div class="pod-feed">' + filtered.map(ep => `
+    <div class="pod-item" id="pod-${ep.id}">
+      <div class="pod-header" onclick="togglePod('${ep.id}')">
+        <div class="pod-logo pod-logo-${ep.pod.toLowerCase()}">${ep.pod}</div>
+        <div class="pod-meta">
+          <div class="pod-show">${ep.show.toUpperCase()}</div>
+          <div class="pod-title">${ep.title}</div>
+          <div class="pod-date">${ep.dateLabel}</div>
+        </div>
+        <div class="pod-right">
+          <a class="pod-listen" href="${ep.url}" target="_blank" onclick="event.stopPropagation()">▶ LISTEN</a>
+          <span class="pod-chevron" id="chev-${ep.id}">▼</span>
+        </div>
+      </div>
+      <div class="pod-sparknotes" id="notes-${ep.id}">
+        <div class="pod-sparknotes-head">SPARKNOTES</div>
+        ${ep.notes.map(n => `<div class="pod-bullet">${n}</div>`).join('')}
+      </div>
+    </div>`).join('') + '</div>';
+}
+
+function togglePod(id) {
+  const notes = document.getElementById('notes-' + id);
+  const chev  = document.getElementById('chev-'  + id);
+  const open  = notes.classList.toggle('open');
+  chev.classList.toggle('open', open);
+}
+
+document.getElementById('pod-filters').addEventListener('click', e => {
+  const btn = e.target.closest('.filter-btn');
+  if (!btn) return;
+  document.querySelectorAll('#pod-filters .filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  activePodFilter = btn.dataset.pod;
+  renderPodcasts();
+});
+
+renderPodcasts();
+
+/* ══════════════════════════════════════════════
+   TAB ROUTING
+══════════════════════════════════════════════ */
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('page-' + tab.dataset.page).classList.add('active');
+  });
+});
+
+/* ══════════════════════════════════════════════
+   ESPN 2026 DEFAULT DATA  (Mike Clay PPR Rankings, May 2026)
+   Source: ESPN Fantasy Football / Mike Clay
+   These are pre-season draft rankings, not weekly projections.
+   Season projected points are estimated from positional rank tiers.
+══════════════════════════════════════════════ */
+(function loadESPNDefaults() {
+  // Projected season fantasy points estimated by rank tier (PPR, 17 games)
+  // Top QB ~420, Top RB ~380, Top WR ~340, Top TE ~260
+  const ESPN_PROJECTIONS = [
+    // QBs
+    {name:"Josh Allen",          pos:"QB", team:"BUF", proj:420, floor:360, ceil:480, conf:88, notes:"QB1 consensus, elite rushing floor"},
+    {name:"Jayden Daniels",      pos:"QB", team:"WAS", proj:395, floor:330, ceil:455, conf:80, notes:"Breakout Year 2, strong legs"},
+    {name:"Drake Maye",          pos:"QB", team:"NE",  proj:375, floor:310, ceil:440, conf:76, notes:"Major Year 2 leap expected"},
+    {name:"Lamar Jackson",       pos:"QB", team:"BAL", proj:370, floor:300, ceil:440, conf:82, notes:"MVP upside, injury concern"},
+    {name:"Jalen Hurts",         pos:"QB", team:"PHI", proj:355, floor:290, ceil:420, conf:78, notes:"Easiest projected schedule"},
+    {name:"Joe Burrow",          pos:"QB", team:"CIN", proj:340, floor:280, ceil:400, conf:74, notes:"Health key; elite when healthy"},
+    {name:"Jaxson Dart",         pos:"QB", team:"NYG", proj:305, floor:240, ceil:375, conf:62, notes:"Rookie upside, unknown ceiling"},
+    {name:"Brock Purdy",         pos:"QB", team:"SF",  proj:300, floor:240, ceil:360, conf:66, notes:"Rebounding from 2025 injuries"},
+    {name:"Trevor Lawrence",     pos:"QB", team:"JAC", proj:295, floor:235, ceil:355, conf:64, notes:"Bounce-back season expected"},
+    {name:"Bo Nix",              pos:"QB", team:"DEN", proj:285, floor:225, ceil:345, conf:62, notes:"Sophomore jump likely"},
+    {name:"Caleb Williams",      pos:"QB", team:"CHI", proj:280, floor:220, ceil:345, conf:61, notes:"Year 2 development critical"},
+    {name:"Dak Prescott",        pos:"QB", team:"DAL", proj:275, floor:215, ceil:335, conf:64, notes:"Returning from injury"},
+    {name:"Patrick Mahomes",     pos:"QB", team:"KC",  proj:270, floor:215, ceil:335, conf:72, notes:"Volume concerns in KC system"},
+    {name:"Justin Herbert",      pos:"QB", team:"LAC", proj:260, floor:205, ceil:320, conf:63, notes:"Consistent floor, solid WR2"},
+    // RBs
+    {name:"Bijan Robinson",      pos:"RB", team:"ATL", proj:340, floor:270, ceil:410, conf:84, notes:"Overall RB1, elite in all phases"},
+    {name:"Jahmyr Gibbs",        pos:"RB", team:"DET", proj:320, floor:255, ceil:390, conf:82, notes:"Montgomery gone, full bell-cow"},
+    {name:"Christian McCaffrey", pos:"RB", team:"SF",  proj:310, floor:245, ceil:380, conf:78, notes:"Touch volume dependent on health"},
+    {name:"Jonathan Taylor",     pos:"RB", team:"IND", proj:295, floor:230, ceil:360, conf:76, notes:"Elite when healthy and featured"},
+    {name:"De'Von Achane",       pos:"RB", team:"MIA", proj:285, floor:220, ceil:355, conf:74, notes:"Explosive, pass-down role key"},
+    {name:"James Cook",          pos:"RB", team:"BUF", proj:270, floor:210, ceil:335, conf:72, notes:"Benefits from Josh Allen offense"},
+    {name:"Ashton Jeanty",       pos:"RB", team:"LV",  proj:265, floor:200, ceil:335, conf:70, notes:"Rookie phenom from Boise State"},
+    {name:"Saquon Barkley",      pos:"RB", team:"PHI", proj:255, floor:195, ceil:320, conf:73, notes:"Eagles' easy schedule a plus"},
+    {name:"Josh Jacobs",         pos:"RB", team:"GB",  proj:245, floor:185, ceil:305, conf:70, notes:"3-down back in GB system"},
+    {name:"Derrick Henry",       pos:"RB", team:"BAL", proj:235, floor:175, ceil:300, conf:69, notes:"Still elite at 32, TD machine"},
+    {name:"Omarion Hampton",     pos:"RB", team:"LAC", proj:225, floor:165, ceil:290, conf:65, notes:"Rookie from UNC, strong hands"},
+    {name:"Chase Brown",         pos:"RB", team:"CIN", proj:215, floor:160, ceil:275, conf:64, notes:"Mixon gone, RB1 role his"},
+    {name:"Kenneth Walker III",  pos:"RB", team:"KC",  proj:210, floor:155, ceil:270, conf:63, notes:"Super Bowl MVP, new team"},
+    {name:"Breece Hall",         pos:"RB", team:"NYJ", proj:205, floor:150, ceil:265, conf:62, notes:"Health and QB stability concerns"},
+    {name:"Javonte Williams",    pos:"RB", team:"DAL", proj:200, floor:150, ceil:260, conf:61, notes:"Pickens and Lamb draw coverage"},
+    {name:"Kyren Williams",      pos:"RB", team:"LAR", proj:195, floor:145, ceil:255, conf:61, notes:"McVay system, efficient"},
+    // WRs
+    {name:"Puka Nacua",          pos:"WR", team:"LAR", proj:300, floor:235, ceil:365, conf:82, notes:"WR1 overall, Stafford connection"},
+    {name:"Ja'Marr Chase",       pos:"WR", team:"CIN", proj:295, floor:230, ceil:360, conf:84, notes:"Elite talent, TD regression risk"},
+    {name:"Jaxon Smith-Njigba",  pos:"WR", team:"SEA", proj:285, floor:220, ceil:350, conf:80, notes:"Breakout star, WR1 role locked"},
+    {name:"Amon-Ra St. Brown",   pos:"WR", team:"DET", proj:280, floor:215, ceil:345, conf:81, notes:"Elite target share, Gibbs helps"},
+    {name:"CeeDee Lamb",         pos:"WR", team:"DAL", proj:275, floor:210, ceil:340, conf:79, notes:"Schedule improves significantly"},
+    {name:"Drake London",        pos:"WR", team:"ATL", proj:265, floor:200, ceil:330, conf:77, notes:"Top target with Bijan Robinson"},
+    {name:"Rashee Rice",         pos:"WR", team:"KC",  proj:255, floor:195, ceil:320, conf:75, notes:"Mahomes' go-to, healthy in 2026"},
+    {name:"Justin Jefferson",    pos:"WR", team:"MIN", proj:250, floor:190, ceil:315, conf:76, notes:"Kyler Murray new QB connection"},
+    {name:"Malik Nabers",        pos:"WR", team:"NYG", proj:245, floor:185, ceil:310, conf:74, notes:"Dart-to-Nabers stack potential"},
+    {name:"Nico Collins",        pos:"WR", team:"HOU", proj:240, floor:180, ceil:305, conf:73, notes:"Stroud back, elite targets"},
+    {name:"Chris Olave",         pos:"WR", team:"NO",  proj:230, floor:170, ceil:295, conf:70, notes:"Health is the only worry"},
+    {name:"Garrett Wilson",      pos:"WR", team:"NYJ", proj:225, floor:165, ceil:290, conf:69, notes:"Talent is undeniable, QB TBD"},
+    {name:"A.J. Brown",          pos:"WR", team:"PHI", proj:220, floor:165, ceil:285, conf:71, notes:"Elite red zone presence"},
+    {name:"George Pickens",      pos:"WR", team:"DAL", proj:215, floor:160, ceil:280, conf:68, notes:"Reunited with Dak Prescott"},
+    {name:"Tetairoa McMillan",   pos:"WR", team:"CAR", proj:210, floor:155, ceil:275, conf:66, notes:"Rookie with massive upside"},
+    {name:"Zay Flowers",         pos:"WR", team:"BAL", proj:205, floor:150, ceil:265, conf:67, notes:"Lamar connection very real"},
+    {name:"Davante Adams",       pos:"WR", team:"LAR", proj:195, floor:145, ceil:255, conf:65, notes:"Puka competition limits ceiling"},
+    {name:"DeVonta Smith",       pos:"WR", team:"PHI", proj:190, floor:140, ceil:250, conf:64, notes:"Second option, still valuable"},
+    {name:"Terry McLaurin",      pos:"WR", team:"WAS", proj:185, floor:135, ceil:245, conf:64, notes:"Daniels upgrade is a plus"},
+    {name:"Tee Higgins",         pos:"WR", team:"CIN", proj:180, floor:130, ceil:240, conf:62, notes:"Chase shares volume"},
+    // TEs
+    {name:"Trey McBride",        pos:"TE", team:"ARI", proj:225, floor:165, ceil:285, conf:80, notes:"TE1 consensus, elite target share"},
+    {name:"Brock Bowers",        pos:"TE", team:"LV",  proj:210, floor:155, ceil:270, conf:78, notes:"Jeanty helps open TE routes"},
+    {name:"Colston Loveland",    pos:"TE", team:"CHI", proj:185, floor:130, ceil:245, conf:72, notes:"Strong rookie Year 2 leap"},
+    {name:"Tyler Warren",        pos:"TE", team:"IND", proj:175, floor:120, ceil:235, conf:70, notes:"Daniel Jones connection"},
+    {name:"Sam LaPorta",         pos:"TE", team:"DET", proj:165, floor:115, ceil:220, conf:68, notes:"Solid but capped by Gibbs/ARSB"},
+    {name:"Mark Andrews",        pos:"TE", team:"BAL", proj:160, floor:110, ceil:215, conf:67, notes:"Health concerns, TD upside"},
+    {name:"Dalton Kincaid",      pos:"TE", team:"BUF", proj:150, floor:100, ceil:205, conf:63, notes:"Benefits from Josh Allen"},
+    {name:"Evan Engram",         pos:"TE", team:"JAC", proj:145, floor:98,  ceil:195, conf:61, notes:"Lawrence bounce-back helps"},
+    {name:"David Njoku",         pos:"TE", team:"CLE", proj:140, floor:92,  ceil:190, conf:59, notes:"Watson back, risky floor"},
+    {name:"Pat Freiermuth",      pos:"TE", team:"PIT", proj:130, floor:85,  ceil:180, conf:57, notes:"Crowded room, sleeper appeal"},
+  ];
+
+  const ESPN_RANKINGS = [
+    // QBs
+    {rank:1,  name:"Josh Allen",          pos:"QB", team:"BUF", proj:420, change:0},
+    {rank:2,  name:"Jayden Daniels",      pos:"QB", team:"WAS", proj:395, change:2},
+    {rank:3,  name:"Drake Maye",          pos:"QB", team:"NE",  proj:375, change:3},
+    {rank:4,  name:"Lamar Jackson",       pos:"QB", team:"BAL", proj:370, change:-1},
+    {rank:5,  name:"Jalen Hurts",         pos:"QB", team:"PHI", proj:355, change:0},
+    {rank:6,  name:"Joe Burrow",          pos:"QB", team:"CIN", proj:340, change:1},
+    {rank:7,  name:"Jaxson Dart",         pos:"QB", team:"NYG", proj:305, change:0},
+    {rank:8,  name:"Brock Purdy",         pos:"QB", team:"SF",  proj:300, change:-2},
+    {rank:9,  name:"Trevor Lawrence",     pos:"QB", team:"JAC", proj:295, change:0},
+    {rank:10, name:"Patrick Mahomes",     pos:"QB", team:"KC",  proj:270, change:-4},
+    // RBs
+    {rank:1,  name:"Bijan Robinson",      pos:"RB", team:"ATL", proj:340, change:1},
+    {rank:2,  name:"Jahmyr Gibbs",        pos:"RB", team:"DET", proj:320, change:3},
+    {rank:3,  name:"Christian McCaffrey", pos:"RB", team:"SF",  proj:310, change:-1},
+    {rank:4,  name:"Jonathan Taylor",     pos:"RB", team:"IND", proj:295, change:0},
+    {rank:5,  name:"De'Von Achane",       pos:"RB", team:"MIA", proj:285, change:0},
+    {rank:6,  name:"James Cook",          pos:"RB", team:"BUF", proj:270, change:2},
+    {rank:7,  name:"Ashton Jeanty",       pos:"RB", team:"LV",  proj:265, change:0},
+    {rank:8,  name:"Saquon Barkley",      pos:"RB", team:"PHI", proj:255, change:-2},
+    {rank:9,  name:"Josh Jacobs",         pos:"RB", team:"GB",  proj:245, change:1},
+    {rank:10, name:"Derrick Henry",       pos:"RB", team:"BAL", proj:235, change:-1},
+    // WRs
+    {rank:1,  name:"Puka Nacua",          pos:"WR", team:"LAR", proj:300, change:4},
+    {rank:2,  name:"Ja'Marr Chase",       pos:"WR", team:"CIN", proj:295, change:0},
+    {rank:3,  name:"Jaxon Smith-Njigba",  pos:"WR", team:"SEA", proj:285, change:5},
+    {rank:4,  name:"Amon-Ra St. Brown",   pos:"WR", team:"DET", proj:280, change:1},
+    {rank:5,  name:"CeeDee Lamb",         pos:"WR", team:"DAL", proj:275, change:-1},
+    {rank:6,  name:"Drake London",        pos:"WR", team:"ATL", proj:265, change:2},
+    {rank:7,  name:"Rashee Rice",         pos:"WR", team:"KC",  proj:255, change:3},
+    {rank:8,  name:"Justin Jefferson",    pos:"WR", team:"MIN", proj:250, change:-3},
+    {rank:9,  name:"Malik Nabers",        pos:"WR", team:"NYG", proj:245, change:2},
+    {rank:10, name:"Nico Collins",        pos:"WR", team:"HOU", proj:240, change:1},
+    // TEs
+    {rank:1,  name:"Trey McBride",        pos:"TE", team:"ARI", proj:225, change:2},
+    {rank:2,  name:"Brock Bowers",        pos:"TE", team:"LV",  proj:210, change:0},
+    {rank:3,  name:"Colston Loveland",    pos:"TE", team:"CHI", proj:185, change:3},
+    {rank:4,  name:"Tyler Warren",        pos:"TE", team:"IND", proj:175, change:4},
+    {rank:5,  name:"Sam LaPorta",         pos:"TE", team:"DET", proj:165, change:-1},
+    {rank:6,  name:"Mark Andrews",        pos:"TE", team:"BAL", proj:160, change:-2},
+    {rank:7,  name:"Dalton Kincaid",      pos:"TE", team:"BUF", proj:150, change:1},
+    {rank:8,  name:"Evan Engram",         pos:"TE", team:"JAC", proj:145, change:0},
+    {rank:9,  name:"David Njoku",         pos:"TE", team:"CLE", proj:140, change:-1},
+    {rank:10, name:"Pat Freiermuth",      pos:"TE", team:"PIT", proj:130, change:1},
+  ];
+
+  // Add rank field to projections based on position order
+  const posCounts = {};
+  ESPN_PROJECTIONS.forEach(p => {
+    const pos = p.pos;
+    posCounts[pos] = (posCounts[pos] || 0) + 1;
+    p.rank = posCounts[pos];
+    p.week = '2026 Season';
+  });
+
+  state.projections = ESPN_PROJECTIONS;
+  state.rankings    = ESPN_RANKINGS;
+  state.scoring     = 'std';
+  state.lastSource  = 'ESPN · Mike Clay · May 2026';
+
+  renderProjections();
+  renderRankings();
+  updateSummary();
+
+  document.getElementById('last-updated').textContent = 'ESPN · Mike Clay · May 2026';
+  document.getElementById('week-pill').textContent    = '2026 SEASON';
+  document.getElementById('rank-week-label').textContent = '2026 SEASON';
+  document.getElementById('s-last-load').textContent  = 'May 2026';
+  document.getElementById('s-last-source').textContent = 'ESPN · Mike Clay';
+
+  const banner = document.createElement('div');
+  banner.style.cssText = 'background:#0f1520;border:1px solid #1e2a3a;border-radius:6px;padding:8px 14px;margin-bottom:18px;font-size:10px;color:#4a6080;letter-spacing:0.06em;display:flex;align-items:center;gap:8px;flex-wrap:wrap;';
+  banner.innerHTML = '<span style="color:#2a6099;font-size:13px;">◈</span> DEFAULT DATA: ESPN Fantasy Football 2026 PPR Rankings · Mike Clay (May 2026) · Points estimated by positional rank tier; STD/Half-PPR computed from reception estimates';
+  document.querySelector('#page-projections .summary-row').before(banner);
+})();
+
+/* ══════════════════════════════════════════════
+   TAB ROUTING
+══════════════════════════════════════════════ */
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('page-' + tab.dataset.page).classList.add('active');
+  });
+});
+</script>
+</body>
+</html>
