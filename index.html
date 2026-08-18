@@ -229,32 +229,6 @@ td.bold { color: var(--text); font-weight: 600; }
 .empty-state svg { width: 40px; height: 40px; margin: 0 auto 14px; display: block; opacity: 0.3; }
 .empty-state p { margin-top: 8px; font-size: 11px; }
 
-/* ─── Rankings ───────────────────────────────────────────────── */
-.rank-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 14px;
-}
-.rank-card {
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: 8px; padding: 14px;
-}
-.rank-card-head {
-  font-size: 9px; letter-spacing: 0.14em; color: var(--text3);
-  font-weight: 600; margin-bottom: 10px;
-}
-.rank-row {
-  display: flex; align-items: center; gap: 10px;
-  padding: 7px 0; border-bottom: 1px solid var(--border);
-}
-.rank-row:last-child { border-bottom: none; }
-.rank-n    { font-size: 11px; color: var(--text3); width: 16px; text-align: center; flex-shrink: 0; }
-.rank-info { flex: 1; }
-.rank-name { font-size: 12px; color: var(--text); font-weight: 600; }
-.rank-meta { font-size: 10px; color: var(--text3); margin-top: 1px; }
-.rank-pts  { font-size: 13px; font-weight: 700; color: var(--text); }
-.rank-chg  { font-size: 10px; width: 26px; text-align: right; flex-shrink: 0; }
-
 /* ─── Start / Sit ────────────────────────────────────────────── */
 .ss-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 @media (max-width: 600px) { .ss-wrap { grid-template-columns: 1fr; } }
@@ -423,6 +397,10 @@ td.bold { color: var(--text); font-weight: 600; }
 }
 .section-head-left  { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .section-head-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+/* ─── Rankings comparison table ─────────────────────────────── */
+.src-min { color: var(--green); }
+.src-max { color: var(--red); }
 </style>
 </head>
 <body>
@@ -515,23 +493,40 @@ td.bold { color: var(--text); font-weight: 600; }
     <section class="page" id="page-rankings">
       <div class="section-head-row">
         <div class="section-head-left">
-          <span class="section-title">POSITIONAL RANKINGS</span>
+          <span class="section-title">CONSENSUS RANKINGS</span>
           <span id="rank-week-label" class="chip">WEEK —</span>
         </div>
         <div class="section-head-right">
-          <div class="scoring-toggle">
-            <button class="scoring-btn active" data-scoring="std"  onclick="setScoringMode('std')">STD</button>
-            <button class="scoring-btn"        data-scoring="hppr" onclick="setScoringMode('hppr')">HALF-PPR</button>
-            <button class="scoring-btn"        data-scoring="ppr"  onclick="setScoringMode('ppr')">PPR</button>
+          <div class="filter-row" id="rank-pos-filters">
+            <button class="filter-btn active" data-pos="ALL">ALL</button>
+            <button class="filter-btn" data-pos="QB">QB</button>
+            <button class="filter-btn" data-pos="RB">RB</button>
+            <button class="filter-btn" data-pos="WR">WR</button>
+            <button class="filter-btn" data-pos="TE">TE</button>
           </div>
         </div>
       </div>
-      <div class="rank-grid" id="rank-grid">
-        <div class="empty-state" style="grid-column:1/-1">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
-          Upload a rankings CSV to populate this view
-          <p>See the Import Guide tab for the expected format.</p>
-        </div>
+      <div class="table-wrap">
+        <table id="rank-table">
+          <thead>
+            <tr>
+              <th class="r">#</th>
+              <th data-col="name">PLAYER <span class="sort-arrow"></span></th>
+              <th data-col="team">TEAM <span class="sort-arrow"></span></th>
+              <th data-col="ESPN" class="r">ESPN PTS <span class="sort-arrow"></span></th>
+              <th data-col="Andy" class="r">ANDY PTS <span class="sort-arrow"></span></th>
+              <th data-col="Mike" class="r">MIKE PTS <span class="sort-arrow"></span></th>
+              <th data-col="Jason" class="r">JASON PTS <span class="sort-arrow"></span></th>
+              <th data-col="avg" class="r sorted">AVG PTS <span class="sort-arrow">↓</span></th>
+            </tr>
+          </thead>
+          <tbody id="rank-body">
+            <tr><td colspan="8"><div class="empty-state">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+              No ranking sources loaded
+            </div></td></tr>
+          </tbody>
+        </table>
       </div>
     </section>
 
@@ -569,31 +564,6 @@ td.bold { color: var(--text); font-weight: 600; }
 
   </main>
 
-        <!-- R code snippet -->
-        <div class="guide-card">
-          <h3><span>04</span> R EXPORT SNIPPET</h3>
-          <p>After building your model in R, export each data frame as a CSV. Drop the files in your repo's <code>/data/</code> folder and upload via the import bar.</p>
-          <div class="code-block"><span class="cm"># Install once</span>
-<span class="fn">library</span>(tidyverse)
-
-<span class="cm"># Your projection model output</span>
-projections <span class="kw">&lt;-</span> model_output <span class="kw">|&gt;</span>
-  <span class="fn">select</span>(name, pos, team, opp,
-         proj, floor, ceil, conf,
-         week, notes)
-
-<span class="cm"># Write to CSV</span>
-<span class="fn">write_csv</span>(projections,
-  <span class="str">"projections.csv"</span>)
-
-<span class="fn">write_csv</span>(rankings,
-  <span class="str">"rankings.csv"</span>)
-
-<span class="fn">write_csv</span>(news_feed,
-  <span class="str">"news.csv"</span>)</div>
-        </div>
-
-
 <script>
 /* ══════════════════════════════════════════════
    STATE
@@ -601,9 +571,12 @@ projections <span class="kw">&lt;-</span> model_output <span class="kw">|&gt;</s
 const state = {
   projections: [],
   rankings: [],
+  rankingsCombined: [],
   news: [],
   projSort: { col: 'proj', dir: 'desc' },
   projPos: 'ALL',
+  rankPos: 'ALL',
+  rankSort: { col: 'avg', dir: 'desc' },
   newsImp: 'ALL',
   scoring: 'std',   // 'std' | 'hppr' | 'ppr'
 };
@@ -666,7 +639,6 @@ function setScoringMode(mode) {
     b.classList.toggle('active', b.dataset.scoring === mode);
   });
   renderProjections();
-  renderRankings();
   updateSummary();
 }
 
@@ -791,44 +763,148 @@ document.getElementById('pos-filters').addEventListener('click', e => {
 });
 
 /* ══════════════════════════════════════════════
-   RANKINGS
+   RANKINGS — multi-source fantasy point comparison
+   Combines the ESPN default projections with any number of named
+   ranker sources (state.rankSources[sourceName][pos] = [{name,team,pts}]),
+   matched by normalized player name + position, into one row per
+   player showing each source's projected season fantasy points plus
+   the average across sources. Sorted by average points, highest first.
+
+   Point totals for UDK sources (Andy/Mike/Jason) are calculated from
+   their raw stat lines (yards, TDs, INTs, fumbles) using standard
+   4pt-passing-TD scoring: 1pt/25 pass yds, 4pt pass TD, 1pt/10 rush or
+   rec yds, 6pt rush/rec TD, -2 INT, -2 fumble, 0 per reception — see
+   the parsing step that produced UDK_SOURCES below. ESPN's PPR-based
+   projection is converted to the same standard-scoring basis.
 ══════════════════════════════════════════════ */
+state.rankSources = {}; // e.g. { Andy: { QB: [...], RB: [...] }, Mike: {...} }
+
+function normalizeName(n) {
+  return (n || '')
+    .toLowerCase()
+    .replace(/[.'']/g, '')
+    .replace(/\b(jr|sr|ii|iii|iv|v)\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function espnStdPts(player) {
+  // ESPN's proj field is a PPR-based season total; strip the estimated
+  // reception bonus to put it on the same standard-scoring basis as UDK.
+  const base = num(player.proj);
+  if (!base) return null;
+  const recs = REC_ESTIMATES[(player.pos || '').toUpperCase()] || 0;
+  return Math.round((base - recs) * 10) / 10;
+}
+
+function buildRankingsCombined() {
+  const combined = {};
+  function addRow(sourceName, name, team, pos, pts) {
+    if (pts === null || pts === undefined || isNaN(pts)) return;
+    const key = normalizeName(name) + '|' + pos;
+    if (!combined[key]) combined[key] = { name, team, pos, pts: {} };
+    if (!combined[key].team) combined[key].team = team;
+    combined[key].pts[sourceName] = pts;
+  }
+
+  // ESPN default projections double as a source
+  state.projections.forEach(p => {
+    addRow('ESPN', p.name, p.team, (p.pos || '').toUpperCase(), espnStdPts(p));
+  });
+
+  // Any additional named sources (e.g. UDK: Andy, Mike, Jason)
+  Object.entries(state.rankSources).forEach(([sourceName, posMap]) => {
+    Object.entries(posMap).forEach(([pos, list]) => {
+      (list || []).forEach(item => addRow(sourceName, item.name, item.team, pos, item.pts));
+    });
+  });
+
+  state.rankingsCombined = Object.values(combined).map(r => {
+    const vals = Object.values(r.pts).filter(v => typeof v === 'number');
+    r.avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+    return r;
+  });
+}
+
 function renderRankings() {
-  const grid = document.getElementById('rank-grid');
-  const rows = state.rankings;
+  const tbody = document.getElementById('rank-body');
+  let rows = state.rankPos === 'ALL'
+    ? state.rankingsCombined.slice()
+    : state.rankingsCombined.filter(r => r.pos === state.rankPos);
+
   if (!rows.length) {
-    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
-      Upload a rankings CSV to populate this view</div>`;
+    tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state">No ranking sources loaded</div></td></tr>`;
     return;
   }
 
-  const byPos = {};
-  rows.forEach(r => {
-    const p = (r.pos || 'UNK').toUpperCase();
-    if (!byPos[p]) byPos[p] = [];
-    byPos[p].push(r);
+  const { col, dir } = state.rankSort;
+  rows.sort((a, b) => {
+    let av, bv;
+    if (col === 'name' || col === 'team') {
+      av = a[col] || ''; bv = b[col] || '';
+    } else if (col === 'avg') {
+      av = a.avg; bv = b.avg;
+    } else {
+      av = a.pts[col]; bv = b.pts[col];
+    }
+    const aMissing = av === null || av === undefined;
+    const bMissing = bv === null || bv === undefined;
+    if (aMissing && bMissing) return 0;
+    if (aMissing) return 1;
+    if (bMissing) return -1;
+    if (av < bv) return dir === 'asc' ? -1 : 1;
+    if (av > bv) return dir === 'asc' ? 1 : -1;
+    return 0;
   });
-  Object.values(byPos).forEach(arr => arr.sort((a,b) => num(a.rank,99) - num(b.rank,99)));
 
-  grid.innerHTML = Object.entries(byPos).map(([pos, players]) => `
-    <div class="rank-card">
-      <div class="rank-card-head">${pos} RANKINGS</div>
-      ${players.slice(0, 10).map(p => {
-        const chg = parseInt(p.change || 0);
-        const pv = scoredVal(p,'proj');
-        return `<div class="rank-row">
-          <div class="rank-n">${p.rank}</div>
-          <div class="rank-info">
-            <div class="rank-name">${p.name || '—'}</div>
-            <div class="rank-meta">${p.team || ''}</div>
-          </div>
-          <div class="rank-pts">${pv ? fmt(pv) : ''}</div>
-          <div class="rank-chg ${chg > 0 ? 'up-val' : chg < 0 ? 'down-val' : ''}">${chg > 0 ? '▲'+chg : chg < 0 ? '▼'+Math.abs(chg) : '—'}</div>
-        </div>`;
-      }).join('')}
-    </div>`).join('');
+  const cell = v => (v === undefined || v === null) ? `<span style="color:var(--text3)">—</span>` : v.toFixed(1);
+
+  tbody.innerHTML = rows.map((r, i) => {
+    const pos = (r.pos || '').toUpperCase();
+    return `<tr>
+      <td class="r" style="color:var(--text3)">${i + 1}</td>
+      <td><span class="pos pos-${pos}">${pos}</span><span class="bold">${r.name || '—'}</span></td>
+      <td style="color:var(--text3)">${r.team || '—'}</td>
+      <td class="r">${cell(r.pts.ESPN)}</td>
+      <td class="r">${cell(r.pts.Andy)}</td>
+      <td class="r">${cell(r.pts.Mike)}</td>
+      <td class="r">${cell(r.pts.Jason)}</td>
+      <td class="r bold">${r.avg != null ? r.avg.toFixed(1) : '—'}</td>
+    </tr>`;
+  }).join('');
 }
+
+/* Sort headers */
+document.querySelectorAll('#rank-table thead th[data-col]').forEach(th => {
+  th.addEventListener('click', () => {
+    const col = th.dataset.col;
+    if (state.rankSort.col === col) {
+      state.rankSort.dir = state.rankSort.dir === 'asc' ? 'desc' : 'asc';
+    } else {
+      state.rankSort.col = col;
+      state.rankSort.dir = (col === 'name' || col === 'team') ? 'asc' : 'desc';
+    }
+    document.querySelectorAll('#rank-table thead th').forEach(t => {
+      t.classList.remove('sorted');
+      const arr = t.querySelector('.sort-arrow');
+      if (arr) arr.textContent = '';
+    });
+    th.classList.add('sorted');
+    const arrow = th.querySelector('.sort-arrow');
+    if (arrow) arrow.textContent = state.rankSort.dir === 'asc' ? '↑' : '↓';
+    renderRankings();
+  });
+});
+
+/* Position filters */
+document.getElementById('rank-pos-filters').addEventListener('click', e => {
+  const btn = e.target.closest('.filter-btn');
+  if (!btn) return;
+  document.querySelectorAll('#rank-pos-filters .filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  state.rankPos = btn.dataset.pos;
+  renderRankings();
+});
 
 /* ══════════════════════════════════════════════
    NEWS
@@ -1158,12 +1234,10 @@ document.querySelectorAll('.tab').forEach(tab => {
   state.lastSource  = 'ESPN · Mike Clay · May 2026';
 
   renderProjections();
-  renderRankings();
   updateSummary();
 
   document.getElementById('last-updated').textContent = 'ESPN · Mike Clay · May 2026';
   document.getElementById('week-pill').textContent    = '2026 SEASON';
-  document.getElementById('rank-week-label').textContent = '2026 SEASON';
   document.getElementById('s-last-load').textContent  = 'May 2026';
   document.getElementById('s-last-source').textContent = 'ESPN · Mike Clay';
 
@@ -1174,16 +1248,21 @@ document.querySelectorAll('.tab').forEach(tab => {
 })();
 
 /* ══════════════════════════════════════════════
-   TAB ROUTING
+   UDK 2026 RANKING SOURCES (Andy / Mike / Jason — 4pt-per-passing-TD)
+   Source: Underdog Fantasy Ultimate Draft Kit exports, per-ranker CSVs.
+   Each entry's "pts" is a projected season fantasy-point total computed
+   from that ranker's raw stat line (passing/rushing/receiving yards and
+   TDs, INTs, fumbles) using standard scoring: 1pt/25 pass yds, 4pt pass
+   TD, 1pt/10 rush or rec yds, 6pt rush/rec TD, -2 INT, -2 fumble, 0 per
+   reception. Merged with ESPN in buildRankingsCombined() by normalized
+   player name, and the combined table is sorted by average points.
 ══════════════════════════════════════════════ */
-document.querySelectorAll('.tab').forEach(tab => {
-  tab.addEventListener('click', () => {
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    tab.classList.add('active');
-    document.getElementById('page-' + tab.dataset.page).classList.add('active');
-  });
-});
+(function loadUDKDefaults() {
+  state.rankSources = {"Andy":{"QB":[{"name":"Josh Allen","team":"BUF","pts":378.0},{"name":"Lamar Jackson","team":"BAL","pts":334.0},{"name":"Jalen Hurts","team":"PHI","pts":324.6},{"name":"Jayden Daniels","team":"WAS","pts":318.0},{"name":"Drake Maye","team":"NE","pts":319.7},{"name":"Joe Burrow","team":"CIN","pts":313.2},{"name":"Trevor Lawrence","team":"JAX","pts":316.0},{"name":"Caleb Williams","team":"CHI","pts":313.5},{"name":"Jaxson Dart","team":"NYG","pts":312.3},{"name":"Bo Nix","team":"DEN","pts":307.7},{"name":"Jared Goff","team":"DET","pts":308.0},{"name":"Malik Willis","team":"MIA","pts":302.6},{"name":"Dak Prescott","team":"DAL","pts":300.0},{"name":"Brock Purdy","team":"SF","pts":300.8},{"name":"Matthew Stafford","team":"LAR","pts":299.0},{"name":"Kyler Murray","team":"MIN","pts":297.2},{"name":"Patrick Mahomes","team":"KC","pts":295.0},{"name":"Tyler Shough","team":"NO","pts":292.0},{"name":"Justin Herbert","team":"LAC","pts":292.0},{"name":"Baker Mayfield","team":"TB","pts":287.3},{"name":"C.J. Stroud","team":"HOU","pts":256.0},{"name":"Jordan Love","team":"GB","pts":254.5},{"name":"Cam Ward","team":"TEN","pts":247.5},{"name":"Bryce Young","team":"CAR","pts":243.0},{"name":"Jacoby Brissett","team":"ARI","pts":242.1},{"name":"Sam Darnold","team":"SEA","pts":239.0},{"name":"Geno Smith","team":"NYJ","pts":226.3},{"name":"Aaron Rodgers","team":"PIT","pts":224.6},{"name":"Daniel Jones","team":"IND","pts":221.5},{"name":"Fernando Mendoza","team":"LV","pts":123.0},{"name":"Kirk Cousins","team":"LV","pts":120.5},{"name":"Michael Penix Jr.","team":"ATL","pts":107.2},{"name":"Tua Tagovailoa","team":"ATL","pts":100.0},{"name":"Deshaun Watson","team":"CLE","pts":83.4},{"name":"Shedeur Sanders","team":"CLE","pts":81.6},{"name":"Carson Beck","team":"ARI","pts":20.3}],"RB":[{"name":"Jahmyr Gibbs","team":"DET","pts":292.4},{"name":"Bijan Robinson","team":"ATL","pts":274.8},{"name":"James Cook III","team":"BUF","pts":260.9},{"name":"Christian McCaffrey","team":"SF","pts":256.0},{"name":"Jonathan Taylor","team":"IND","pts":246.4},{"name":"De'Von Achane","team":"MIA","pts":243.1},{"name":"Kenneth Walker","team":"KC","pts":227.4},{"name":"Ashton Jeanty","team":"LV","pts":220.9},{"name":"Derrick Henry","team":"BAL","pts":208.9},{"name":"Saquon Barkley","team":"PHI","pts":203.2},{"name":"Omarion Hampton","team":"LAC","pts":204.6},{"name":"Chase Brown","team":"CIN","pts":191.2},{"name":"Breece Hall","team":"NYJ","pts":190.1},{"name":"Josh Jacobs","team":"GB","pts":191.2},{"name":"Javonte Williams","team":"DAL","pts":187.6},{"name":"Quinshon Judkins","team":"CLE","pts":181.4},{"name":"Kyren Williams","team":"LAR","pts":179.3},{"name":"Cam Skattebo","team":"NYG","pts":181.9},{"name":"Jeremiyah Love","team":"ARI","pts":180.0},{"name":"Jadarian Price","team":"SEA","pts":173.0},{"name":"D'Andre Swift","team":"CHI","pts":173.2},{"name":"Travis Etienne Jr.","team":"NO","pts":176.9},{"name":"Bucky Irving","team":"TB","pts":170.3},{"name":"Bhayshul Tuten","team":"JAX","pts":172.7},{"name":"Rico Dowdle","team":"PIT","pts":166.3},{"name":"TreVeyon Henderson","team":"NE","pts":167.4},{"name":"Jacory Croskey-Merritt","team":"WAS","pts":154.6},{"name":"Rhamondre Stevenson","team":"NE","pts":152.9},{"name":"David Montgomery","team":"HOU","pts":155.1},{"name":"Tyjae Spears","team":"TEN","pts":147.2},{"name":"Jaylen Warren","team":"PIT","pts":145.2},{"name":"Jonathon Brooks","team":"CAR","pts":142.5},{"name":"Blake Corum","team":"LAR","pts":138.3},{"name":"Jordan Mason","team":"MIN","pts":140.1},{"name":"Chuba Hubbard","team":"CAR","pts":130.5},{"name":"Kyle Monangai","team":"CHI","pts":131.1},{"name":"Tony Pollard","team":"TEN","pts":130.0},{"name":"Tyrone Tracy Jr.","team":"NYG","pts":129.7},{"name":"Kenny Gainwell","team":"TB","pts":126.1},{"name":"J.K. Dobbins","team":"DEN","pts":114.6},{"name":"MarShawn Lloyd","team":"GB","pts":112.2},{"name":"Rachaad White","team":"WAS","pts":115.1},{"name":"Jordan James","team":"SF","pts":113.1},{"name":"Woody Marks","team":"HOU","pts":102.3},{"name":"Jonah Coleman","team":"DEN","pts":102.4},{"name":"Tank Bigsby","team":"PHI","pts":101.5},{"name":"Chris Rodriguez Jr.","team":"JAX","pts":96.0},{"name":"RJ Harvey","team":"DEN","pts":94.2},{"name":"Aaron Jones Sr.","team":"MIN","pts":97.1},{"name":"Tyler Allgeier","team":"ARI","pts":87.2},{"name":"Zach Charbonnet","team":"SEA","pts":83.1},{"name":"Braelon Allen","team":"NYJ","pts":87.1},{"name":"Isiah Pacheco","team":"DET","pts":81.5},{"name":"Kimani Vidal","team":"LAC","pts":81.2},{"name":"Samaje Perine","team":"CIN","pts":79.1},{"name":"Keaton Mitchell","team":"LAC","pts":78.2},{"name":"Chris Brooks","team":"GB","pts":73.8},{"name":"Kaytron Allen","team":"WAS","pts":70.2},{"name":"DJ Giddens","team":"IND","pts":70.0},{"name":"Brian Robinson","team":"ATL","pts":66.2},{"name":"Dylan Sampson","team":"CLE","pts":68.4},{"name":"Mike Washington Jr.","team":"LV","pts":63.4},{"name":"Alvin Kamara","team":"NO","pts":60.6},{"name":"Devin Neal","team":"NO","pts":61.6},{"name":"Devin Singletary","team":"NYG","pts":62.8},{"name":"Ty Johnson","team":"BUF","pts":67.5},{"name":"Justice Hill","team":"BAL","pts":62.4},{"name":"LeQuint Allen Jr.","team":"JAX","pts":57.6},{"name":"Emanuel Wilson","team":"SEA","pts":50.6},{"name":"Nicholas Singleton","team":"TEN","pts":53.3},{"name":"Sean Tucker","team":"TB","pts":54.0},{"name":"Emari Demercado","team":"KC","pts":49.3},{"name":"Emmett Johnson","team":"KC","pts":51.8},{"name":"James Conner","team":"ARI","pts":54.1},{"name":"Isaiah Davis","team":"NYJ","pts":50.0},{"name":"George Holani","team":"SEA","pts":46.8},{"name":"Will Shipley","team":"PHI","pts":48.4},{"name":"AJ Dillon","team":"CAR","pts":42.4},{"name":"Kaelon Black","team":"SF","pts":39.4},{"name":"Brashard Smith","team":"KC","pts":41.1},{"name":"Adam Randall","team":"BAL","pts":36.1},{"name":"Ray Davis","team":"BUF","pts":33.0},{"name":"Jaydon Blue","team":"DAL","pts":36.6},{"name":"Ollie Gordon II","team":"MIA","pts":32.8},{"name":"Demond Claiborne","team":"MIN","pts":27.0},{"name":"Jaylen Wright","team":"MIA","pts":30.2},{"name":"Trevor Etienne","team":"CAR","pts":19.8},{"name":"Jerome Ford","team":"WAS","pts":19.8},{"name":"Tahj Brooks","team":"CIN","pts":15.1},{"name":"Kaleb Johnson","team":"PIT","pts":13.4}],"TE":[{"name":"Brock Bowers","team":"LV","pts":170.7},{"name":"Trey McBride","team":"ARI","pts":164.3},{"name":"Colston Loveland","team":"CHI","pts":133.0},{"name":"Tucker Kraft","team":"GB","pts":128.5},{"name":"Tyler Warren","team":"IND","pts":115.2},{"name":"Harold Fannin Jr.","team":"CLE","pts":105.4},{"name":"George Kittle","team":"SF","pts":103.1},{"name":"Sam LaPorta","team":"DET","pts":105.3},{"name":"Dallas Goedert","team":"PHI","pts":99.0},{"name":"Kyle Pitts Sr.","team":"ATL","pts":103.9},{"name":"Juwan Johnson","team":"NO","pts":100.3},{"name":"Dalton Kincaid","team":"BUF","pts":100.6},{"name":"Hunter Henry","team":"NE","pts":94.1},{"name":"Isaiah Likely","team":"NYG","pts":91.6},{"name":"Greg Dulcich","team":"MIA","pts":93.9},{"name":"Jake Ferguson","team":"DAL","pts":89.8},{"name":"Brenton Strange","team":"JAX","pts":91.7},{"name":"AJ Barner","team":"SEA","pts":86.4},{"name":"Dalton Schultz","team":"HOU","pts":89.2},{"name":"Chig Okonkwo","team":"WAS","pts":86.0},{"name":"Mark Andrews","team":"BAL","pts":77.4},{"name":"Travis Kelce","team":"KC","pts":85.6},{"name":"Colby Parkinson","team":"LAR","pts":83.0},{"name":"Pat Freiermuth","team":"PIT","pts":79.1},{"name":"Cade Otton","team":"TB","pts":65.6},{"name":"T.J. Hockenson","team":"MIN","pts":64.8},{"name":"Darren Waller","team":"CAR","pts":63.2},{"name":"Kenyon Sadiq","team":"NYJ","pts":59.8},{"name":"Gunnar Helm","team":"TEN","pts":60.0},{"name":"Theo Johnson","team":"NYG","pts":55.5},{"name":"Elijah Arroyo","team":"SEA","pts":57.8},{"name":"Evan Engram","team":"DEN","pts":58.8},{"name":"David Njoku","team":"LAC","pts":56.2},{"name":"Oronde Gadsden","team":"LAC","pts":50.7},{"name":"Cole Kmet","team":"CHI","pts":49.9},{"name":"Mason Taylor","team":"NYJ","pts":48.5},{"name":"Eli Stowers","team":"PHI","pts":47.2},{"name":"Dawson Knox","team":"BUF","pts":47.9},{"name":"Mike Gesicki","team":"CIN","pts":43.8},{"name":"Michael Mayer","team":"LV","pts":40.0},{"name":"Jake Tonges","team":"SF","pts":39.0},{"name":"Charlie Kolar","team":"LAC","pts":35.6},{"name":"Ben Sinnott","team":"WAS","pts":34.0},{"name":"Terrance Ferguson","team":"LAR","pts":31.7},{"name":"Darnell Washington","team":"PIT","pts":31.9},{"name":"Ja'Tavion Sanders","team":"CAR","pts":31.1},{"name":"Tommy Tremble","team":"CAR","pts":33.7},{"name":"Noah Fant","team":"NO","pts":30.8},{"name":"Noah Gray","team":"KC","pts":30.5},{"name":"Max Klare","team":"LAR","pts":27.8},{"name":"Luke Musgrave","team":"GB","pts":23.7}],"WR":[{"name":"Jaxon Smith-Njigba","team":"SEA","pts":211.7},{"name":"Puka Nacua","team":"LAR","pts":209.4},{"name":"Ja'Marr Chase","team":"CIN","pts":209.6},{"name":"Amon-Ra St. Brown","team":"DET","pts":197.8},{"name":"CeeDee Lamb","team":"DAL","pts":165.5},{"name":"Justin Jefferson","team":"MIN","pts":169.7},{"name":"George Pickens","team":"DAL","pts":167.7},{"name":"Jameson Williams","team":"DET","pts":162.4},{"name":"Tee Higgins","team":"CIN","pts":160.0},{"name":"Nico Collins","team":"HOU","pts":159.6},{"name":"A.J. Brown","team":"NE","pts":157.8},{"name":"Emeka Egbuka","team":"TB","pts":157.5},{"name":"Rashee Rice","team":"KC","pts":158.5},{"name":"Malik Nabers","team":"NYG","pts":157.6},{"name":"Drake London","team":"ATL","pts":155.4},{"name":"Christian Watson","team":"GB","pts":156.5},{"name":"Tetairoa McMillan","team":"CAR","pts":154.6},{"name":"Rome Odunze","team":"CHI","pts":156.9},{"name":"Carnell Tate","team":"TEN","pts":157.7},{"name":"Jaylen Waddle","team":"DEN","pts":156.4},{"name":"Zay Flowers","team":"BAL","pts":156.7},{"name":"DJ Moore","team":"BUF","pts":155.2},{"name":"Alec Pierce","team":"IND","pts":155.5},{"name":"Marvin Harrison Jr.","team":"ARI","pts":152.4},{"name":"Chris Olave","team":"NO","pts":153.6},{"name":"Garrett Wilson","team":"NYJ","pts":151.4},{"name":"Ladd McConkey","team":"LAC","pts":151.4},{"name":"Terry McLaurin","team":"WAS","pts":148.5},{"name":"DeVonta Smith","team":"PHI","pts":147.2},{"name":"Parker Washington","team":"JAX","pts":148.8},{"name":"Luther Burden III","team":"CHI","pts":151.2},{"name":"Brian Thomas Jr.","team":"JAX","pts":146.7},{"name":"DK Metcalf","team":"PIT","pts":146.4},{"name":"Quentin Johnston","team":"LAC","pts":133.0},{"name":"Davante Adams","team":"LAR","pts":135.9},{"name":"Mike Evans","team":"SF","pts":134.6},{"name":"Michael Wilson","team":"ARI","pts":121.5},{"name":"Jordan Addison","team":"MIN","pts":122.8},{"name":"Wan'Dale Robinson","team":"TEN","pts":114.1},{"name":"Courtland Sutton","team":"DEN","pts":109.2},{"name":"Michael Pittman Jr.","team":"PIT","pts":111.4},{"name":"Stefon Diggs","team":"WAS","pts":111.0},{"name":"Chris Godwin Jr.","team":"TB","pts":111.6},{"name":"Jayden Higgins","team":"HOU","pts":109.9},{"name":"Romeo Doubs","team":"NE","pts":109.1},{"name":"Denzel Boston","team":"CLE","pts":107.5},{"name":"Travis Hunter","team":"JAX","pts":108.3},{"name":"De'Zhaun Stribling","team":"SF","pts":107.3},{"name":"Xavier Worthy","team":"KC","pts":106.5},{"name":"Khalil Shakir","team":"BUF","pts":103.8},{"name":"Jakobi Meyers","team":"JAX","pts":105.6},{"name":"Matthew Golden","team":"GB","pts":101.9},{"name":"Josh Downs","team":"IND","pts":100.0},{"name":"Jayden Reed","team":"GB","pts":96.4},{"name":"Makai Lemon","team":"PHI","pts":97.3},{"name":"Jordyn Tyson","team":"NO","pts":91.4},{"name":"Jauan Jennings","team":"MIN","pts":91.8},{"name":"Jalen Nailor","team":"LV","pts":90.9},{"name":"Jalen Coker","team":"CAR","pts":87.0},{"name":"Rashid Shaheed","team":"SEA","pts":87.7},{"name":"KC Concepcion","team":"CLE","pts":88.1},{"name":"Omar Cooper Jr.","team":"NYJ","pts":84.8},{"name":"Malik Benson","team":"LV","pts":87.2},{"name":"Tre Tucker","team":"LV","pts":85.9},{"name":"Malachi Fields","team":"NYG","pts":80.2},{"name":"DeMario Douglas","team":"NE","pts":80.1},{"name":"Malik Washington","team":"MIA","pts":79.8},{"name":"Tre' Harris","team":"LAC","pts":77.7},{"name":"Ja'Kobi Lane","team":"BAL","pts":80.3},{"name":"Deebo Samuel Sr.","team":"SF","pts":78.5},{"name":"Chimere Dike","team":"TEN","pts":74.4},{"name":"Dontayvion Wicks","team":"PHI","pts":72.5},{"name":"Pat Bryant","team":"DEN","pts":71.2},{"name":"Tory Horton","team":"SEA","pts":72.3},{"name":"Elic Ayomanor","team":"TEN","pts":69.5},{"name":"Isaac TeSlaa","team":"DET","pts":72.3},{"name":"Troy Franklin","team":"DEN","pts":71.7},{"name":"Adonai Mitchell","team":"NYJ","pts":71.4},{"name":"Cyrus Allen","team":"KC","pts":67.3},{"name":"Calvin Ridley","team":"TEN","pts":66.3},{"name":"Darius Slayton","team":"NYG","pts":66.8},{"name":"Kayshon Boutte","team":"NE","pts":61.4},{"name":"Jerry Jeudy","team":"CLE","pts":62.9},{"name":"Ryan Flournoy","team":"DAL","pts":63.0},{"name":"Germie Bernard","team":"PIT","pts":62.8},{"name":"Jalen McMillan","team":"TB","pts":62.2},{"name":"Cooper Kupp","team":"SEA","pts":61.2},{"name":"Rashod Bateman","team":"BAL","pts":61.2},{"name":"Darnell Mooney","team":"NYG","pts":59.3},{"name":"Antonio Williams","team":"WAS","pts":61.4},{"name":"Keon Coleman","team":"BUF","pts":61.3},{"name":"Ted Hurst III","team":"TB","pts":60.6},{"name":"Caleb Douglas","team":"MIA","pts":57.6},{"name":"Tez Johnson","team":"TB","pts":60.3},{"name":"Zachariah Branch","team":"ATL","pts":59.9},{"name":"Xavier Hutchinson","team":"HOU","pts":57.7},{"name":"Tank Dell","team":"HOU","pts":56.6},{"name":"Marvin Mims Jr.","team":"DEN","pts":56.9},{"name":"Tyquan Thornton","team":"KC","pts":54.5},{"name":"Jalen Tolbert","team":"MIA","pts":49.6},{"name":"Jack Bech","team":"LV","pts":52.0},{"name":"Treylon Burks","team":"WAS","pts":47.0},{"name":"Olamide Zaccheaus","team":"ATL","pts":50.9},{"name":"Kendrick Bourne","team":"ARI","pts":47.2},{"name":"Brenen Thompson","team":"LAC","pts":47.2},{"name":"Chris Bell","team":"MIA","pts":44.2},{"name":"Mack Hollins","team":"NE","pts":47.0},{"name":"Roman Wilson","team":"PIT","pts":44.4},{"name":"Kyle Williams","team":"NE","pts":43.0},{"name":"Jaylin Noel","team":"HOU","pts":43.7},{"name":"Dont'e Thornton Jr.","team":"LV","pts":40.8},{"name":"Hollywood Brown","team":"PHI","pts":41.3},{"name":"Calvin Austin III","team":"NYG","pts":43.3},{"name":"Van Jefferson","team":"WAS","pts":41.2},{"name":"Kalif Raymond","team":"CHI","pts":38.2},{"name":"Bryce Lance","team":"NO","pts":37.8},{"name":"Andrei Iosivas","team":"CIN","pts":35.1},{"name":"Devaughn Vele","team":"NO","pts":38.4},{"name":"Tutu Atwell","team":"MIA","pts":32.7},{"name":"Devontez Walker","team":"BAL","pts":35.9},{"name":"Christian Kirk","team":"SF","pts":36.4},{"name":"Jaylin Lane","team":"WAS","pts":34.7},{"name":"Elijah Sarratt","team":"BAL","pts":33.4},{"name":"Cedric Tillman","team":"CLE","pts":34.2},{"name":"Jahan Dotson","team":"ATL","pts":29.3},{"name":"Jordan Whittington","team":"LAR","pts":28.4},{"name":"Chris Brazzell II","team":"CAR","pts":27.3},{"name":"Zavion Thomas","team":"CHI","pts":23.4},{"name":"Xavier Legette","team":"CAR","pts":24.9},{"name":"Skyler Bell","team":"BUF","pts":21.2}]},"Jason":{"QB":[{"name":"Josh Allen","team":"BUF","pts":383.0},{"name":"Lamar Jackson","team":"BAL","pts":338.8},{"name":"Jalen Hurts","team":"PHI","pts":336.6},{"name":"Joe Burrow","team":"CIN","pts":332.5},{"name":"Jaxson Dart","team":"NYG","pts":333.1},{"name":"Jayden Daniels","team":"WAS","pts":335.9},{"name":"Drake Maye","team":"NE","pts":330.1},{"name":"Caleb Williams","team":"CHI","pts":324.4},{"name":"Justin Herbert","team":"LAC","pts":325.8},{"name":"Dak Prescott","team":"DAL","pts":322.7},{"name":"Trevor Lawrence","team":"JAX","pts":317.5},{"name":"Baker Mayfield","team":"TB","pts":318.6},{"name":"Bo Nix","team":"DEN","pts":315.9},{"name":"Brock Purdy","team":"SF","pts":311.9},{"name":"Patrick Mahomes","team":"KC","pts":310.2},{"name":"Kyler Murray","team":"MIN","pts":303.8},{"name":"Jared Goff","team":"DET","pts":304.5},{"name":"Matthew Stafford","team":"LAR","pts":303.2},{"name":"Tyler Shough","team":"NO","pts":302.5},{"name":"Jordan Love","team":"GB","pts":296.0},{"name":"Cam Ward","team":"TEN","pts":279.7},{"name":"Malik Willis","team":"MIA","pts":274.1},{"name":"C.J. Stroud","team":"HOU","pts":273.5},{"name":"Daniel Jones","team":"IND","pts":269.3},{"name":"Aaron Rodgers","team":"PIT","pts":251.1},{"name":"Sam Darnold","team":"SEA","pts":248.5},{"name":"Bryce Young","team":"CAR","pts":239.7},{"name":"Geno Smith","team":"NYJ","pts":232.6},{"name":"Shedeur Sanders","team":"CLE","pts":199.5},{"name":"Tua Tagovailoa","team":"ATL","pts":195.6},{"name":"Kirk Cousins","team":"LV","pts":136.3},{"name":"Carson Beck","team":"ARI","pts":127.4},{"name":"Jacoby Brissett","team":"ARI","pts":105.8},{"name":"Fernando Mendoza","team":"LV","pts":70.8},{"name":"Deshaun Watson","team":"CLE","pts":66.9},{"name":"Michael Penix Jr.","team":"ATL","pts":27.3}],"RB":[{"name":"Jahmyr Gibbs","team":"DET","pts":306.7},{"name":"Bijan Robinson","team":"ATL","pts":299.5},{"name":"Christian McCaffrey","team":"SF","pts":289.8},{"name":"Jonathan Taylor","team":"IND","pts":270.2},{"name":"James Cook III","team":"BUF","pts":265.2},{"name":"Derrick Henry","team":"BAL","pts":242.0},{"name":"Omarion Hampton","team":"LAC","pts":229.9},{"name":"Kenneth Walker","team":"KC","pts":222.1},{"name":"Ashton Jeanty","team":"LV","pts":217.4},{"name":"De'Von Achane","team":"MIA","pts":215.0},{"name":"Kyren Williams","team":"LAR","pts":215.0},{"name":"Chase Brown","team":"CIN","pts":215.5},{"name":"Josh Jacobs","team":"GB","pts":209.5},{"name":"Saquon Barkley","team":"PHI","pts":204.6},{"name":"Javonte Williams","team":"DAL","pts":191.6},{"name":"Cam Skattebo","team":"NYG","pts":191.4},{"name":"Bucky Irving","team":"TB","pts":189.3},{"name":"Jeremiyah Love","team":"ARI","pts":187.9},{"name":"TreVeyon Henderson","team":"NE","pts":186.1},{"name":"Breece Hall","team":"NYJ","pts":185.1},{"name":"D'Andre Swift","team":"CHI","pts":189.0},{"name":"Bhayshul Tuten","team":"JAX","pts":177.7},{"name":"Jadarian Price","team":"SEA","pts":168.4},{"name":"David Montgomery","team":"HOU","pts":172.8},{"name":"Quinshon Judkins","team":"CLE","pts":168.8},{"name":"Travis Etienne Jr.","team":"NO","pts":168.6},{"name":"Chuba Hubbard","team":"CAR","pts":154.1},{"name":"Jacory Croskey-Merritt","team":"WAS","pts":141.0},{"name":"Rhamondre Stevenson","team":"NE","pts":144.1},{"name":"Kyle Monangai","team":"CHI","pts":139.0},{"name":"J.K. Dobbins","team":"DEN","pts":135.6},{"name":"Tony Pollard","team":"TEN","pts":137.6},{"name":"Jaylen Warren","team":"PIT","pts":133.5},{"name":"Rico Dowdle","team":"PIT","pts":133.3},{"name":"Jordan Mason","team":"MIN","pts":128.8},{"name":"Blake Corum","team":"LAR","pts":129.4},{"name":"RJ Harvey","team":"DEN","pts":121.1},{"name":"Kenny Gainwell","team":"TB","pts":118.5},{"name":"Aaron Jones Sr.","team":"MIN","pts":117.4},{"name":"Zach Charbonnet","team":"SEA","pts":115.7},{"name":"Tyrone Tracy Jr.","team":"NYG","pts":108.0},{"name":"Jonathon Brooks","team":"CAR","pts":105.0},{"name":"Rachaad White","team":"WAS","pts":103.4},{"name":"Jonah Coleman","team":"DEN","pts":103.7},{"name":"Isiah Pacheco","team":"DET","pts":104.8},{"name":"Brian Robinson","team":"ATL","pts":103.0},{"name":"Woody Marks","team":"HOU","pts":98.5},{"name":"Chris Rodriguez Jr.","team":"JAX","pts":96.4},{"name":"Dylan Sampson","team":"CLE","pts":95.4},{"name":"Tank Bigsby","team":"PHI","pts":93.7},{"name":"Nicholas Singleton","team":"TEN","pts":99.5},{"name":"Alvin Kamara","team":"NO","pts":87.4},{"name":"Jordan James","team":"SF","pts":84.0},{"name":"Keaton Mitchell","team":"LAC","pts":86.5},{"name":"Tyjae Spears","team":"TEN","pts":85.7},{"name":"Tyler Allgeier","team":"ARI","pts":78.0},{"name":"Emmett Johnson","team":"KC","pts":76.7},{"name":"Jaydon Blue","team":"DAL","pts":73.5},{"name":"Kimani Vidal","team":"LAC","pts":73.2},{"name":"Mike Washington Jr.","team":"LV","pts":76.0},{"name":"Samaje Perine","team":"CIN","pts":70.0},{"name":"Ty Johnson","team":"BUF","pts":66.5},{"name":"Chris Brooks","team":"GB","pts":66.5},{"name":"Trevor Etienne","team":"CAR","pts":60.0},{"name":"James Conner","team":"ARI","pts":56.2},{"name":"Justice Hill","team":"BAL","pts":57.9},{"name":"Demond Claiborne","team":"MIN","pts":54.7},{"name":"Jaylen Wright","team":"MIA","pts":58.0},{"name":"Isaiah Davis","team":"NYJ","pts":52.5},{"name":"Jerome Ford","team":"WAS","pts":55.9},{"name":"Braelon Allen","team":"NYJ","pts":53.3},{"name":"Ray Davis","team":"BUF","pts":54.5},{"name":"Kaelon Black","team":"SF","pts":49.1},{"name":"Sean Tucker","team":"TB","pts":42.0},{"name":"DJ Giddens","team":"IND","pts":47.5},{"name":"Kaytron Allen","team":"WAS","pts":42.3},{"name":"LeQuint Allen Jr.","team":"JAX","pts":45.7},{"name":"Kaleb Johnson","team":"PIT","pts":40.4},{"name":"Devin Singletary","team":"NYG","pts":35.6},{"name":"Ollie Gordon II","team":"MIA","pts":39.3},{"name":"Brashard Smith","team":"KC","pts":39.0},{"name":"Adam Randall","team":"BAL","pts":29.4},{"name":"Tahj Brooks","team":"CIN","pts":30.0},{"name":"Devin Neal","team":"NO","pts":25.9},{"name":"MarShawn Lloyd","team":"GB","pts":27.0},{"name":"Emari Demercado","team":"KC","pts":32.0},{"name":"Emanuel Wilson","team":"SEA","pts":22.2},{"name":"Will Shipley","team":"PHI","pts":18.3}],"TE":[{"name":"Brock Bowers","team":"LV","pts":161.4},{"name":"Colston Loveland","team":"CHI","pts":155.6},{"name":"Tyler Warren","team":"IND","pts":150.8},{"name":"Trey McBride","team":"ARI","pts":145.6},{"name":"Harold Fannin Jr.","team":"CLE","pts":140.7},{"name":"Sam LaPorta","team":"DET","pts":123.3},{"name":"Tucker Kraft","team":"GB","pts":119.5},{"name":"Dalton Kincaid","team":"BUF","pts":117.0},{"name":"George Kittle","team":"SF","pts":117.6},{"name":"Kyle Pitts Sr.","team":"ATL","pts":111.6},{"name":"Brenton Strange","team":"JAX","pts":114.9},{"name":"Mark Andrews","team":"BAL","pts":112.8},{"name":"Travis Kelce","team":"KC","pts":107.3},{"name":"Isaiah Likely","team":"NYG","pts":96.7},{"name":"Jake Ferguson","team":"DAL","pts":97.3},{"name":"Dallas Goedert","team":"PHI","pts":96.7},{"name":"Oronde Gadsden","team":"LAC","pts":91.0},{"name":"Hunter Henry","team":"NE","pts":91.2},{"name":"Chig Okonkwo","team":"WAS","pts":87.0},{"name":"Juwan Johnson","team":"NO","pts":85.0},{"name":"Terrance Ferguson","team":"LAR","pts":81.9},{"name":"Kenyon Sadiq","team":"NYJ","pts":84.0},{"name":"T.J. Hockenson","team":"MIN","pts":80.1},{"name":"Dalton Schultz","team":"HOU","pts":81.5},{"name":"Mike Gesicki","team":"CIN","pts":79.0},{"name":"Cade Otton","team":"TB","pts":75.9},{"name":"Pat Freiermuth","team":"PIT","pts":76.0},{"name":"Gunnar Helm","team":"TEN","pts":69.0},{"name":"Colby Parkinson","team":"LAR","pts":70.5},{"name":"Cole Kmet","team":"CHI","pts":67.0},{"name":"Greg Dulcich","team":"MIA","pts":63.1},{"name":"David Njoku","team":"LAC","pts":57.6},{"name":"Eli Stowers","team":"PHI","pts":54.0},{"name":"AJ Barner","team":"SEA","pts":52.5},{"name":"Charlie Kolar","team":"LAC","pts":49.0},{"name":"Dawson Knox","team":"BUF","pts":51.0},{"name":"Evan Engram","team":"DEN","pts":45.3},{"name":"Ja'Tavion Sanders","team":"CAR","pts":47.7},{"name":"Luke Musgrave","team":"GB","pts":46.5},{"name":"Michael Mayer","team":"LV","pts":41.8},{"name":"Mason Taylor","team":"NYJ","pts":36.4},{"name":"Ben Sinnott","team":"WAS","pts":36.0},{"name":"Darnell Washington","team":"PIT","pts":33.7},{"name":"Max Klare","team":"LAR","pts":33.0},{"name":"Theo Johnson","team":"NYG","pts":31.8},{"name":"Noah Fant","team":"NO","pts":33.3},{"name":"Elijah Arroyo","team":"SEA","pts":22.3},{"name":"Justin Joly","team":"DEN","pts":19.1},{"name":"Noah Gray","team":"KC","pts":19.5},{"name":"Oscar Delp","team":"NO","pts":5.4}],"WR":[{"name":"Ja'Marr Chase","team":"CIN","pts":223.6},{"name":"Puka Nacua","team":"LAR","pts":211.0},{"name":"Jaxon Smith-Njigba","team":"SEA","pts":203.6},{"name":"CeeDee Lamb","team":"DAL","pts":195.5},{"name":"Amon-Ra St. Brown","team":"DET","pts":198.2},{"name":"Nico Collins","team":"HOU","pts":172.0},{"name":"George Pickens","team":"DAL","pts":171.8},{"name":"Chris Olave","team":"NO","pts":173.0},{"name":"Drake London","team":"ATL","pts":169.1},{"name":"A.J. Brown","team":"NE","pts":169.0},{"name":"Justin Jefferson","team":"MIN","pts":171.6},{"name":"Malik Nabers","team":"NYG","pts":170.3},{"name":"Emeka Egbuka","team":"TB","pts":171.1},{"name":"Rashee Rice","team":"KC","pts":168.3},{"name":"Mike Evans","team":"SF","pts":164.2},{"name":"Jaylen Waddle","team":"DEN","pts":162.8},{"name":"DeVonta Smith","team":"PHI","pts":161.6},{"name":"Zay Flowers","team":"BAL","pts":165.0},{"name":"Garrett Wilson","team":"NYJ","pts":165.3},{"name":"Tee Higgins","team":"CIN","pts":161.5},{"name":"Tetairoa McMillan","team":"CAR","pts":161.9},{"name":"Davante Adams","team":"LAR","pts":159.0},{"name":"Carnell Tate","team":"TEN","pts":155.9},{"name":"Jameson Williams","team":"DET","pts":153.7},{"name":"Ladd McConkey","team":"LAC","pts":155.5},{"name":"Christian Watson","team":"GB","pts":151.9},{"name":"DJ Moore","team":"BUF","pts":156.5},{"name":"Alec Pierce","team":"IND","pts":148.1},{"name":"DK Metcalf","team":"PIT","pts":147.2},{"name":"Rome Odunze","team":"CHI","pts":146.7},{"name":"Luther Burden III","team":"CHI","pts":146.9},{"name":"Brian Thomas Jr.","team":"JAX","pts":142.5},{"name":"Terry McLaurin","team":"WAS","pts":147.0},{"name":"Parker Washington","team":"JAX","pts":145.0},{"name":"Marvin Harrison Jr.","team":"ARI","pts":131.1},{"name":"Jayden Reed","team":"GB","pts":128.5},{"name":"Quentin Johnston","team":"LAC","pts":121.4},{"name":"Jayden Higgins","team":"HOU","pts":121.4},{"name":"Josh Downs","team":"IND","pts":120.2},{"name":"Makai Lemon","team":"PHI","pts":119.6},{"name":"Courtland Sutton","team":"DEN","pts":120.0},{"name":"Jordan Addison","team":"MIN","pts":123.5},{"name":"Rashid Shaheed","team":"SEA","pts":122.5},{"name":"Xavier Worthy","team":"KC","pts":120.0},{"name":"Jordyn Tyson","team":"NO","pts":114.6},{"name":"Michael Pittman Jr.","team":"PIT","pts":115.0},{"name":"KC Concepcion","team":"CLE","pts":109.7},{"name":"De'Zhaun Stribling","team":"SF","pts":110.1},{"name":"Matthew Golden","team":"GB","pts":113.0},{"name":"Jalen Coker","team":"CAR","pts":104.6},{"name":"Chris Godwin Jr.","team":"TB","pts":102.1},{"name":"Wan'Dale Robinson","team":"TEN","pts":106.1},{"name":"Romeo Doubs","team":"NE","pts":99.6},{"name":"Stefon Diggs","team":"WAS","pts":98.9},{"name":"Michael Wilson","team":"ARI","pts":98.7},{"name":"Malik Washington","team":"MIA","pts":98.8},{"name":"Ted Hurst III","team":"TB","pts":97.6},{"name":"Zachariah Branch","team":"ATL","pts":97.4},{"name":"Jakobi Meyers","team":"JAX","pts":97.4},{"name":"Omar Cooper Jr.","team":"NYJ","pts":96.6},{"name":"Khalil Shakir","team":"BUF","pts":95.5},{"name":"Deebo Samuel Sr.","team":"SF","pts":89.7},{"name":"Darnell Mooney","team":"NYG","pts":88.3},{"name":"Jerry Jeudy","team":"CLE","pts":86.2},{"name":"Cooper Kupp","team":"SEA","pts":89.8},{"name":"Adonai Mitchell","team":"NYJ","pts":84.2},{"name":"Tre Tucker","team":"LV","pts":78.3},{"name":"Dontayvion Wicks","team":"PHI","pts":84.0},{"name":"Jauan Jennings","team":"MIN","pts":78.7},{"name":"Cyrus Allen","team":"KC","pts":79.0},{"name":"Keon Coleman","team":"BUF","pts":78.5},{"name":"Tre' Harris","team":"LAC","pts":78.1},{"name":"Jalen Nailor","team":"LV","pts":78.0},{"name":"Caleb Douglas","team":"MIA","pts":75.3},{"name":"Andrei Iosivas","team":"CIN","pts":77.0},{"name":"Germie Bernard","team":"PIT","pts":72.6},{"name":"Ja'Kobi Lane","team":"BAL","pts":72.6},{"name":"Pat Bryant","team":"DEN","pts":71.6},{"name":"Rashod Bateman","team":"BAL","pts":71.3},{"name":"DeMario Douglas","team":"NE","pts":70.0},{"name":"Calvin Ridley","team":"TEN","pts":66.1},{"name":"Antonio Williams","team":"WAS","pts":70.2},{"name":"Travis Hunter","team":"JAX","pts":69.2},{"name":"Denzel Boston","team":"CLE","pts":64.6},{"name":"Isaac TeSlaa","team":"DET","pts":64.5},{"name":"Jack Bech","team":"LV","pts":67.3},{"name":"Kyle Williams","team":"NE","pts":67.3},{"name":"Jalen McMillan","team":"TB","pts":64.1},{"name":"Kayshon Boutte","team":"NE","pts":63.5},{"name":"Tyquan Thornton","team":"KC","pts":62.5},{"name":"Chris Bell","team":"MIA","pts":62.1},{"name":"Ryan Flournoy","team":"DAL","pts":58.4},{"name":"Tank Dell","team":"HOU","pts":57.5},{"name":"Devaughn Vele","team":"NO","pts":56.9},{"name":"Jahan Dotson","team":"ATL","pts":59.5},{"name":"Darius Slayton","team":"NYG","pts":54.0},{"name":"Tory Horton","team":"SEA","pts":53.2},{"name":"Troy Franklin","team":"DEN","pts":56.0},{"name":"Jaylin Noel","team":"HOU","pts":54.5},{"name":"Tez Johnson","team":"TB","pts":47.4},{"name":"Christian Kirk","team":"SF","pts":47.5},{"name":"Kendrick Bourne","team":"ARI","pts":45.3},{"name":"Elic Ayomanor","team":"TEN","pts":46.8},{"name":"Xavier Legette","team":"CAR","pts":40.8},{"name":"Jalen Tolbert","team":"MIA","pts":41.6},{"name":"Treylon Burks","team":"WAS","pts":32.2},{"name":"Mack Hollins","team":"NE","pts":33.1},{"name":"Roman Wilson","team":"PIT","pts":36.0},{"name":"Devontez Walker","team":"BAL","pts":31.5},{"name":"Elijah Sarratt","team":"BAL","pts":32.5},{"name":"Chimere Dike","team":"TEN","pts":30.0},{"name":"Kalif Raymond","team":"CHI","pts":33.7},{"name":"Dont'e Thornton Jr.","team":"LV","pts":29.8},{"name":"Jordan Whittington","team":"LAR","pts":29.5},{"name":"Hollywood Brown","team":"PHI","pts":25.2},{"name":"Calvin Austin III","team":"NYG","pts":26.4},{"name":"Tutu Atwell","team":"MIA","pts":26.3},{"name":"Marvin Mims Jr.","team":"DEN","pts":21.0},{"name":"Malachi Fields","team":"NYG","pts":22.2},{"name":"Zavion Thomas","team":"CHI","pts":21.3},{"name":"Cedric Tillman","team":"CLE","pts":19.3},{"name":"Malik Benson","team":"LV","pts":13.0},{"name":"Brenen Thompson","team":"LAC","pts":16.0},{"name":"Kendrick Law","team":"DET","pts":13.5},{"name":"Chris Brazzell II","team":"CAR","pts":0.0}]},"Mike":{"QB":[{"name":"Josh Allen","team":"BUF","pts":338.8},{"name":"Lamar Jackson","team":"BAL","pts":329.3},{"name":"Jayden Daniels","team":"WAS","pts":332.8},{"name":"Joe Burrow","team":"CIN","pts":322.6},{"name":"Jalen Hurts","team":"PHI","pts":322.6},{"name":"Drake Maye","team":"NE","pts":318.0},{"name":"Trevor Lawrence","team":"JAX","pts":313.5},{"name":"Jaxson Dart","team":"NYG","pts":310.8},{"name":"Dak Prescott","team":"DAL","pts":310.6},{"name":"Caleb Williams","team":"CHI","pts":310.7},{"name":"Justin Herbert","team":"LAC","pts":308.1},{"name":"Tyler Shough","team":"NO","pts":302.0},{"name":"Brock Purdy","team":"SF","pts":301.9},{"name":"Matthew Stafford","team":"LAR","pts":294.6},{"name":"Kyler Murray","team":"MIN","pts":295.4},{"name":"Jared Goff","team":"DET","pts":295.2},{"name":"Baker Mayfield","team":"TB","pts":292.0},{"name":"Bo Nix","team":"DEN","pts":293.5},{"name":"Patrick Mahomes","team":"KC","pts":280.7},{"name":"Sam Darnold","team":"SEA","pts":277.0},{"name":"Jordan Love","team":"GB","pts":271.0},{"name":"Malik Willis","team":"MIA","pts":267.6},{"name":"C.J. Stroud","team":"HOU","pts":264.1},{"name":"Cam Ward","team":"TEN","pts":256.5},{"name":"Daniel Jones","team":"IND","pts":256.7},{"name":"Jacoby Brissett","team":"ARI","pts":254.3},{"name":"Shedeur Sanders","team":"CLE","pts":232.6},{"name":"Tua Tagovailoa","team":"ATL","pts":231.4},{"name":"Aaron Rodgers","team":"PIT","pts":228.2},{"name":"Bryce Young","team":"CAR","pts":223.7},{"name":"Geno Smith","team":"NYJ","pts":215.5},{"name":"Michael Penix Jr.","team":"ATL","pts":143.3},{"name":"Fernando Mendoza","team":"LV","pts":112.7},{"name":"Kirk Cousins","team":"LV","pts":95.1},{"name":"Deshaun Watson","team":"CLE","pts":0.0}],"RB":[{"name":"Jahmyr Gibbs","team":"DET","pts":309.0},{"name":"Bijan Robinson","team":"ATL","pts":300.6},{"name":"Christian McCaffrey","team":"SF","pts":253.5},{"name":"James Cook III","team":"BUF","pts":246.0},{"name":"Jonathan Taylor","team":"IND","pts":236.0},{"name":"Derrick Henry","team":"BAL","pts":236.3},{"name":"Kenneth Walker","team":"KC","pts":223.8},{"name":"Saquon Barkley","team":"PHI","pts":217.3},{"name":"De'Von Achane","team":"MIA","pts":211.3},{"name":"Josh Jacobs","team":"GB","pts":203.9},{"name":"Chase Brown","team":"CIN","pts":203.6},{"name":"Ashton Jeanty","team":"LV","pts":208.3},{"name":"D'Andre Swift","team":"CHI","pts":202.1},{"name":"Jeremiyah Love","team":"ARI","pts":201.1},{"name":"Kyren Williams","team":"LAR","pts":192.7},{"name":"Omarion Hampton","team":"LAC","pts":198.5},{"name":"J.K. Dobbins","team":"DEN","pts":179.7},{"name":"Bucky Irving","team":"TB","pts":184.4},{"name":"Javonte Williams","team":"DAL","pts":179.3},{"name":"Cam Skattebo","team":"NYG","pts":180.8},{"name":"Jacory Croskey-Merritt","team":"WAS","pts":178.4},{"name":"Breece Hall","team":"NYJ","pts":173.4},{"name":"Travis Etienne Jr.","team":"NO","pts":174.5},{"name":"David Montgomery","team":"HOU","pts":171.9},{"name":"Quinshon Judkins","team":"CLE","pts":176.1},{"name":"Bhayshul Tuten","team":"JAX","pts":173.9},{"name":"TreVeyon Henderson","team":"NE","pts":167.3},{"name":"Rico Dowdle","team":"PIT","pts":167.2},{"name":"Jordan Mason","team":"MIN","pts":144.3},{"name":"Jadarian Price","team":"SEA","pts":145.3},{"name":"Chuba Hubbard","team":"CAR","pts":142.5},{"name":"Tony Pollard","team":"TEN","pts":141.7},{"name":"Kenny Gainwell","team":"TB","pts":138.3},{"name":"Kyle Monangai","team":"CHI","pts":142.5},{"name":"Rhamondre Stevenson","team":"NE","pts":133.0},{"name":"Jonathon Brooks","team":"CAR","pts":126.0},{"name":"Jaylen Warren","team":"PIT","pts":118.7},{"name":"Chris Rodriguez Jr.","team":"JAX","pts":114.0},{"name":"Aaron Jones Sr.","team":"MIN","pts":114.5},{"name":"Blake Corum","team":"LAR","pts":111.6},{"name":"RJ Harvey","team":"DEN","pts":106.0},{"name":"Rachaad White","team":"WAS","pts":103.4},{"name":"Tyrone Tracy Jr.","team":"NYG","pts":100.0},{"name":"Tyler Allgeier","team":"ARI","pts":102.9},{"name":"Keaton Mitchell","team":"LAC","pts":92.2},{"name":"Isiah Pacheco","team":"DET","pts":91.5},{"name":"Woody Marks","team":"HOU","pts":75.4},{"name":"Tyjae Spears","team":"TEN","pts":75.4},{"name":"Brian Robinson","team":"ATL","pts":72.9},{"name":"Emmett Johnson","team":"KC","pts":65.4},{"name":"Kaelon Black","team":"SF","pts":64.1},{"name":"Zach Charbonnet","team":"SEA","pts":66.4},{"name":"Dylan Sampson","team":"CLE","pts":63.1},{"name":"George Holani","team":"SEA","pts":59.4},{"name":"Tank Bigsby","team":"PHI","pts":56.9},{"name":"Alvin Kamara","team":"NO","pts":56.8},{"name":"Ray Davis","team":"BUF","pts":55.1},{"name":"James Conner","team":"ARI","pts":50.3},{"name":"Mike Washington Jr.","team":"LV","pts":47.0},{"name":"Justice Hill","team":"BAL","pts":47.1},{"name":"Jonah Coleman","team":"DEN","pts":45.5},{"name":"Kimani Vidal","team":"LAC","pts":46.4},{"name":"Emanuel Wilson","team":"SEA","pts":43.1},{"name":"MarShawn Lloyd","team":"GB","pts":41.6},{"name":"Jerome Ford","team":"WAS","pts":41.4},{"name":"Nicholas Singleton","team":"TEN","pts":39.2},{"name":"Ty Johnson","team":"BUF","pts":39.2},{"name":"DJ Giddens","team":"IND","pts":32.1},{"name":"Isaiah Davis","team":"NYJ","pts":30.6},{"name":"Braelon Allen","team":"NYJ","pts":33.6},{"name":"Jaylen Wright","team":"MIA","pts":28.6},{"name":"Brashard Smith","team":"KC","pts":26.5},{"name":"Samaje Perine","team":"CIN","pts":25.6},{"name":"Kaleb Johnson","team":"PIT","pts":23.5},{"name":"Ollie Gordon II","team":"MIA","pts":23.6},{"name":"Devin Neal","team":"NO","pts":23.7},{"name":"Devin Singletary","team":"NYG","pts":23.7},{"name":"Jordan James","team":"SF","pts":22.0},{"name":"Demond Claiborne","team":"MIN","pts":21.2},{"name":"Trevor Etienne","team":"CAR","pts":20.6},{"name":"Chris Brooks","team":"GB","pts":19.5},{"name":"Emari Demercado","team":"KC","pts":13.3},{"name":"Tahj Brooks","team":"CIN","pts":18.7},{"name":"LeQuint Allen Jr.","team":"JAX","pts":18.1},{"name":"Sean Tucker","team":"TB","pts":15.4},{"name":"Jaydon Blue","team":"DAL","pts":15.9},{"name":"AJ Dillon","team":"CAR","pts":4.7},{"name":"Will Shipley","team":"PHI","pts":4.8},{"name":"Adam Randall","team":"BAL","pts":4.1},{"name":"Audric Estim\u00e9","team":"NO","pts":2.3},{"name":"Kaytron Allen","team":"WAS","pts":2.5}],"TE":[{"name":"Brock Bowers","team":"LV","pts":148.7},{"name":"Trey McBride","team":"ARI","pts":145.8},{"name":"Tucker Kraft","team":"GB","pts":125.9},{"name":"Colston Loveland","team":"CHI","pts":129.3},{"name":"Tyler Warren","team":"IND","pts":122.8},{"name":"George Kittle","team":"SF","pts":122.4},{"name":"Harold Fannin Jr.","team":"CLE","pts":113.5},{"name":"Sam LaPorta","team":"DET","pts":118.1},{"name":"Travis Kelce","team":"KC","pts":102.1},{"name":"Juwan Johnson","team":"NO","pts":95.9},{"name":"Hunter Henry","team":"NE","pts":92.9},{"name":"Kyle Pitts Sr.","team":"ATL","pts":91.1},{"name":"Dalton Kincaid","team":"BUF","pts":92.8},{"name":"Mark Andrews","team":"BAL","pts":86.0},{"name":"Brenton Strange","team":"JAX","pts":89.0},{"name":"Isaiah Likely","team":"NYG","pts":89.0},{"name":"Dallas Goedert","team":"PHI","pts":91.1},{"name":"Greg Dulcich","team":"MIA","pts":86.8},{"name":"Kenyon Sadiq","team":"NYJ","pts":85.1},{"name":"Oronde Gadsden","team":"LAC","pts":86.2},{"name":"Chig Okonkwo","team":"WAS","pts":82.4},{"name":"Dalton Schultz","team":"HOU","pts":81.0},{"name":"Jake Ferguson","team":"DAL","pts":77.4},{"name":"Pat Freiermuth","team":"PIT","pts":76.0},{"name":"T.J. Hockenson","team":"MIN","pts":73.1},{"name":"David Njoku","team":"LAC","pts":70.6},{"name":"Cade Otton","team":"TB","pts":68.0},{"name":"AJ Barner","team":"SEA","pts":65.9},{"name":"Cole Kmet","team":"CHI","pts":64.9},{"name":"Luke Musgrave","team":"GB","pts":62.0},{"name":"Mike Gesicki","team":"CIN","pts":64.5},{"name":"Terrance Ferguson","team":"LAR","pts":56.8},{"name":"Michael Mayer","team":"LV","pts":55.3},{"name":"Dawson Knox","team":"BUF","pts":54.0},{"name":"Noah Gray","team":"KC","pts":56.6},{"name":"Evan Engram","team":"DEN","pts":53.2},{"name":"Charlie Kolar","team":"LAC","pts":55.6},{"name":"Colby Parkinson","team":"LAR","pts":51.4},{"name":"Mason Taylor","team":"NYJ","pts":49.0},{"name":"Eli Stowers","team":"PHI","pts":44.3},{"name":"Theo Johnson","team":"NYG","pts":44.1},{"name":"Darren Waller","team":"CAR","pts":43.9},{"name":"Ja'Tavion Sanders","team":"CAR","pts":42.1},{"name":"Tommy Tremble","team":"CAR","pts":38.0},{"name":"Max Klare","team":"LAR","pts":38.8},{"name":"Gunnar Helm","team":"TEN","pts":35.8},{"name":"Darnell Washington","team":"PIT","pts":29.9},{"name":"Elijah Arroyo","team":"SEA","pts":31.7},{"name":"Jake Tonges","team":"SF","pts":20.5},{"name":"Justin Joly","team":"DEN","pts":18.8},{"name":"Ben Sinnott","team":"WAS","pts":18.6},{"name":"Nate Boerkircher","team":"JAX","pts":15.9},{"name":"Noah Fant","team":"NO","pts":13.3}],"WR":[{"name":"Ja'Marr Chase","team":"CIN","pts":225.1},{"name":"Puka Nacua","team":"LAR","pts":220.8},{"name":"Jaxon Smith-Njigba","team":"SEA","pts":210.2},{"name":"CeeDee Lamb","team":"DAL","pts":188.6},{"name":"Amon-Ra St. Brown","team":"DET","pts":187.1},{"name":"Nico Collins","team":"HOU","pts":172.1},{"name":"Drake London","team":"ATL","pts":165.5},{"name":"A.J. Brown","team":"NE","pts":162.8},{"name":"George Pickens","team":"DAL","pts":165.7},{"name":"Malik Nabers","team":"NYG","pts":161.2},{"name":"Christian Watson","team":"GB","pts":160.7},{"name":"Chris Olave","team":"NO","pts":156.8},{"name":"Justin Jefferson","team":"MIN","pts":157.7},{"name":"Zay Flowers","team":"BAL","pts":161.9},{"name":"Alec Pierce","team":"IND","pts":155.8},{"name":"Tetairoa McMillan","team":"CAR","pts":153.3},{"name":"Tee Higgins","team":"CIN","pts":152.2},{"name":"Emeka Egbuka","team":"TB","pts":153.2},{"name":"Rashee Rice","team":"KC","pts":153.5},{"name":"Jameson Williams","team":"DET","pts":151.0},{"name":"Jaylen Waddle","team":"DEN","pts":148.8},{"name":"DeVonta Smith","team":"PHI","pts":151.2},{"name":"Davante Adams","team":"LAR","pts":151.2},{"name":"Mike Evans","team":"SF","pts":146.9},{"name":"Garrett Wilson","team":"NYJ","pts":146.9},{"name":"Terry McLaurin","team":"WAS","pts":143.5},{"name":"Luther Burden III","team":"CHI","pts":139.8},{"name":"Ladd McConkey","team":"LAC","pts":139.4},{"name":"Carnell Tate","team":"TEN","pts":139.6},{"name":"Quentin Johnston","team":"LAC","pts":141.9},{"name":"Parker Washington","team":"JAX","pts":140.9},{"name":"DK Metcalf","team":"PIT","pts":135.1},{"name":"DJ Moore","team":"BUF","pts":138.0},{"name":"Marvin Harrison Jr.","team":"ARI","pts":130.6},{"name":"Rome Odunze","team":"CHI","pts":128.7},{"name":"Brian Thomas Jr.","team":"JAX","pts":129.4},{"name":"Chris Godwin Jr.","team":"TB","pts":130.3},{"name":"Jordan Addison","team":"MIN","pts":126.8},{"name":"Michael Wilson","team":"ARI","pts":126.6},{"name":"Stefon Diggs","team":"WAS","pts":119.7},{"name":"Courtland Sutton","team":"DEN","pts":124.7},{"name":"Jayden Reed","team":"GB","pts":117.3},{"name":"Tre Tucker","team":"LV","pts":112.5},{"name":"Michael Pittman Jr.","team":"PIT","pts":109.8},{"name":"Jayden Higgins","team":"HOU","pts":109.8},{"name":"Romeo Doubs","team":"NE","pts":108.3},{"name":"Xavier Worthy","team":"KC","pts":106.2},{"name":"Josh Downs","team":"IND","pts":107.0},{"name":"Rashid Shaheed","team":"SEA","pts":100.5},{"name":"Wan'Dale Robinson","team":"TEN","pts":98.5},{"name":"Jalen Coker","team":"CAR","pts":97.4},{"name":"Deebo Samuel Sr.","team":"SF","pts":96.7},{"name":"Makai Lemon","team":"PHI","pts":97.2},{"name":"Malik Washington","team":"MIA","pts":102.0},{"name":"Jakobi Meyers","team":"JAX","pts":94.0},{"name":"Khalil Shakir","team":"BUF","pts":94.5},{"name":"Matthew Golden","team":"GB","pts":83.8},{"name":"Jerry Jeudy","team":"CLE","pts":83.5},{"name":"Tank Dell","team":"HOU","pts":82.4},{"name":"Jordyn Tyson","team":"NO","pts":83.3},{"name":"KC Concepcion","team":"CLE","pts":82.6},{"name":"Calvin Ridley","team":"TEN","pts":79.5},{"name":"Jalen Tolbert","team":"MIA","pts":76.9},{"name":"Ryan Flournoy","team":"DAL","pts":72.6},{"name":"Germie Bernard","team":"PIT","pts":72.0},{"name":"Devaughn Vele","team":"NO","pts":71.2},{"name":"Pat Bryant","team":"DEN","pts":71.0},{"name":"Ja'Kobi Lane","team":"BAL","pts":70.9},{"name":"De'Zhaun Stribling","team":"SF","pts":70.4},{"name":"Jalen Nailor","team":"LV","pts":71.6},{"name":"Jalen McMillan","team":"TB","pts":71.0},{"name":"Omar Cooper Jr.","team":"NYJ","pts":70.3},{"name":"Darius Slayton","team":"NYG","pts":70.3},{"name":"Christian Kirk","team":"SF","pts":69.0},{"name":"Keon Coleman","team":"BUF","pts":64.3},{"name":"Kayshon Boutte","team":"NE","pts":63.6},{"name":"Denzel Boston","team":"CLE","pts":61.9},{"name":"Cooper Kupp","team":"SEA","pts":62.2},{"name":"Adonai Mitchell","team":"NYJ","pts":56.5},{"name":"Caleb Douglas","team":"MIA","pts":52.6},{"name":"Chris Bell","team":"MIA","pts":52.6},{"name":"Isaac TeSlaa","team":"DET","pts":53.5},{"name":"Travis Hunter","team":"JAX","pts":52.6},{"name":"Tyquan Thornton","team":"KC","pts":51.6},{"name":"Andrei Iosivas","team":"CIN","pts":51.0},{"name":"DeMario Douglas","team":"NE","pts":48.2},{"name":"Jack Bech","team":"LV","pts":47.1},{"name":"Jahan Dotson","team":"ATL","pts":45.1},{"name":"Tory Horton","team":"SEA","pts":46.0},{"name":"Dontayvion Wicks","team":"PHI","pts":43.0},{"name":"Antonio Williams","team":"WAS","pts":45.4},{"name":"Malachi Fields","team":"NYG","pts":45.2},{"name":"Rashod Bateman","team":"BAL","pts":43.9},{"name":"Zachariah Branch","team":"ATL","pts":43.5},{"name":"Kalif Raymond","team":"CHI","pts":39.6},{"name":"Jordan Whittington","team":"LAR","pts":39.4},{"name":"Chris Brazzell II","team":"CAR","pts":42.7},{"name":"Brenen Thompson","team":"LAC","pts":42.4},{"name":"Skyler Bell","team":"BUF","pts":41.4},{"name":"Marvin Mims Jr.","team":"DEN","pts":41.4},{"name":"Tre' Harris","team":"LAC","pts":41.2},{"name":"Tez Johnson","team":"TB","pts":38.0},{"name":"Roman Wilson","team":"PIT","pts":39.8},{"name":"Troy Franklin","team":"DEN","pts":38.0},{"name":"Kyle Williams","team":"NE","pts":38.5},{"name":"Elic Ayomanor","team":"TEN","pts":38.5},{"name":"Ted Hurst III","team":"TB","pts":36.8},{"name":"Cyrus Allen","team":"KC","pts":30.2},{"name":"Xavier Hutchinson","team":"HOU","pts":30.0},{"name":"Elijah Sarratt","team":"BAL","pts":28.7},{"name":"Tutu Atwell","team":"MIA","pts":30.2},{"name":"Dont'e Thornton Jr.","team":"LV","pts":28.1},{"name":"Treylon Burks","team":"WAS","pts":29.8},{"name":"Chimere Dike","team":"TEN","pts":26.7},{"name":"Xavier Legette","team":"CAR","pts":25.6},{"name":"Jaylin Noel","team":"HOU","pts":26.4},{"name":"Devontez Walker","team":"BAL","pts":26.7},{"name":"Cedric Tillman","team":"CLE","pts":25.7},{"name":"Darnell Mooney","team":"NYG","pts":25.7},{"name":"Mack Hollins","team":"NE","pts":24.4},{"name":"Jaylin Lane","team":"WAS","pts":23.6},{"name":"Olamide Zaccheaus","team":"ATL","pts":21.7},{"name":"Malik Benson","team":"LV","pts":21.6},{"name":"Calvin Austin III","team":"NYG","pts":21.0},{"name":"Kendrick Bourne","team":"ARI","pts":20.0},{"name":"Van Jefferson","team":"WAS","pts":17.8},{"name":"Hollywood Brown","team":"PHI","pts":14.6}]}};
+  buildRankingsCombined();
+  renderRankings();
+  document.getElementById('rank-week-label').textContent = '2026 SEASON · 4 SOURCES';
+})();
 </script>
 </body>
 </html>
