@@ -494,11 +494,13 @@ td.bold { color: var(--text); font-weight: 600; }
             <button class="filter-btn" data-pos="RB">RB</button>
             <button class="filter-btn" data-pos="WR">WR</button>
             <button class="filter-btn" data-pos="TE">TE</button>
+            <button class="filter-btn" data-pos="FLEX">FLEX</button>
             <button class="filter-btn" data-pos="K">K</button>
             <button class="filter-btn" data-pos="DST">DST</button>
           </div>
         </div>
       </div>
+      <div style="font-size:10px;color:var(--text3);letter-spacing:0.04em;margin:-8px 0 14px;">VORP depends on each league's size, scoring, and bench assumptions (see state.leagues) — one signal, not gospel.</div>
 
       <div class="table-wrap">
         <table id="proj-table">
@@ -511,12 +513,14 @@ td.bold { color: var(--text); font-weight: 600; }
               <th data-col="proj" class="r">PROJ <span class="sort-arrow"></span></th>
               <th data-col="floor" class="r">FLOOR</th>
               <th data-col="ceil" class="r">CEIL</th>
+              <th data-col="vorp10ppr" class="r" title="VORP in Joe's 10-team full-PPR league">VORP 10PPR <span class="sort-arrow"></span></th>
+              <th data-col="vorp8std" class="r" title="VORP in Sam's 8-team standard league">VORP 8STD <span class="sort-arrow"></span></th>
               <th data-col="conf" class="r">CONFIDENCE</th>
               <th data-col="notes">NOTES</th>
             </tr>
           </thead>
           <tbody id="proj-body">
-            <tr><td colspan="9"><div class="empty-state">
+            <tr><td colspan="11"><div class="empty-state">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M9 17H5a2 2 0 00-2 2v0a2 2 0 002 2h14a2 2 0 002-2v0a2 2 0 00-2-2h-4M9 17V9M15 17V5M9 9H5M15 5h4"/></svg>
               Upload a projections CSV to get started
               <p>Use the import bar above or see the Import Guide tab for the expected format.</p>
@@ -540,6 +544,7 @@ td.bold { color: var(--text); font-weight: 600; }
             <button class="filter-btn" data-pos="RB">RB</button>
             <button class="filter-btn" data-pos="WR">WR</button>
             <button class="filter-btn" data-pos="TE">TE</button>
+            <button class="filter-btn" data-pos="FLEX">FLEX</button>
           </div>
         </div>
       </div>
@@ -637,6 +642,23 @@ const state = {
   adpStd: {},    // normalizeName(player)+'|'+pos -> {Sleeper, RTSports} (values may be undefined)
   allPlayers: {}, // normalizeName(player)+'|'+pos -> {name, pos, team} — union of every loaded dataset, search index
   projBlended: {}, // normalizeName(player)+'|'+pos -> {name, team, pos, proj_ppr, proj_std, rec, sources_used} — EXACT, no estimation
+
+  // Fixed per-person league configs for VORP. NOT user-edited in normal
+  // use — each person always sees their own number regardless of the
+  // dashboard's STD/PPR display toggle (VORP uses cfg.scoring, not
+  // state.format). Sam's roster (bench counts, FLEX=1) is an assumption
+  // — if his real league differs, this is the only block to edit.
+  leagues: [
+    { id: 'joe', label: '10 PPR', teams: 10, scoring: 'ppr',
+      starters: { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1 },
+      flexEligible: ['RB', 'WR'],
+      bench: { QB: 1, RB: 2, WR: 3, TE: 1 } },
+    { id: 'sam', label: '8 STD', teams: 8, scoring: 'std',
+      starters: { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1 },
+      flexEligible: ['RB', 'WR'],
+      bench: { QB: 1, RB: 2, WR: 3, TE: 1 } },
+  ],
+  vorp: { joe: null, sam: null }, // computeVorpForLeague() output per league — {vorpByKey, replacementRankByPos}
 };
 
 /* ══════════════════════════════════════════════
@@ -814,15 +836,30 @@ function updateSummary() {
 const posAvatarBg = { QB:'#2d1a3a', RB:'#1a2e1a', WR:'#1a2535', TE:'#2e2a1a', K:'#2e1a1a', DST:'#1e1a2e' };
 const posAvatarFg = { QB:'#c084fc', RB:'#4ade80', WR:'#60a5fa', TE:'#fbbf24', K:'#f87171', DST:'#a78bfa' };
 
+// Position filter now accepts 'ALL', a single position, or 'FLEX' (any
+// position in state.leagues[0].flexEligible — one place to change if
+// TE-flex is ever added).
+function posMatches(rowPos, filterPos) {
+  if (filterPos === 'ALL') return true;
+  if (filterPos === 'FLEX') return state.leagues[0].flexEligible.includes(rowPos);
+  return rowPos === filterPos;
+}
+
 function renderProjections() {
   const { projections, projSort, projPos } = state;
-  let rows = projPos === 'ALL' ? [...projections] : projections.filter(r => r.pos === projPos);
+  let rows = projections.filter(r => posMatches((r.pos || '').toUpperCase(), projPos));
 
   rows.sort((a, b) => {
     let av, bv;
     if (['proj','floor','ceil'].includes(projSort.col)) {
       av = projFieldVal(a, projSort.col, state.format).value;
       bv = projFieldVal(b, projSort.col, state.format).value;
+      if (av == null) av = -Infinity;
+      if (bv == null) bv = -Infinity;
+    } else if (projSort.col === 'vorp10ppr' || projSort.col === 'vorp8std') {
+      const leagueId = projSort.col === 'vorp10ppr' ? 'joe' : 'sam';
+      av = vorpFor(a, leagueId);
+      bv = vorpFor(b, leagueId);
       if (av == null) av = -Infinity;
       if (bv == null) bv = -Infinity;
     } else {
@@ -838,7 +875,7 @@ function renderProjections() {
 
   const tbody = document.getElementById('proj-body');
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state">No players found for this position filter.</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="11"><div class="empty-state">No players found for this position filter.</div></td></tr>`;
     return;
   }
 
@@ -849,6 +886,7 @@ function renderProjections() {
       ? `<span class="pts-estimated" title="estimated — no reception data">~${txt}</span>`
       : txt;
   };
+  const vorpCell = v => v == null ? '—' : v.toFixed(1);
 
   tbody.innerHTML = rows.map((r, i) => {
     const conf = num(r.conf, 0);
@@ -864,30 +902,38 @@ function renderProjections() {
       <td class="r bold">${ptsCell(pv)}</td>
       <td class="r" style="color:var(--text3)">${ptsCell(fv)}</td>
       <td class="r" style="color:var(--text2)">${ptsCell(cv)}</td>
+      <td class="r">${vorpCell(vorpFor(r, 'joe'))}</td>
+      <td class="r">${vorpCell(vorpFor(r, 'sam'))}</td>
       <td class="r">${r.conf ? `<div class="conf-cell"><span class="conf-pct">${conf}%</span><div class="conf-track"><div class="conf-fill" style="width:${Math.min(conf,100)}%"></div></div></div>` : '—'}</td>
       <td style="color:var(--text3);font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.notes || ''}</td>
     </tr>`;
   }).join('');
 }
 
+// Sets projSort and updates the header UI to match — shared by the
+// header-click handler and the FLEX filter's default-sort behavior.
+function applyProjSort(col, dir) {
+  state.projSort.col = col;
+  state.projSort.dir = dir;
+  document.querySelectorAll('#proj-table thead th').forEach(t => {
+    t.classList.remove('sorted');
+    const arr = t.querySelector('.sort-arrow');
+    if (arr) arr.textContent = '';
+  });
+  const th = document.querySelector(`#proj-table thead th[data-col="${col}"]`);
+  if (th) {
+    th.classList.add('sorted');
+    const arrow = th.querySelector('.sort-arrow');
+    if (arrow) arrow.textContent = dir === 'asc' ? '↑' : '↓';
+  }
+}
+
 /* Sort headers */
 document.querySelectorAll('#proj-table thead th[data-col]').forEach(th => {
   th.addEventListener('click', () => {
     const col = th.dataset.col;
-    if (state.projSort.col === col) {
-      state.projSort.dir = state.projSort.dir === 'asc' ? 'desc' : 'asc';
-    } else {
-      state.projSort.col = col;
-      state.projSort.dir = 'desc';
-    }
-    document.querySelectorAll('#proj-table thead th').forEach(t => {
-      t.classList.remove('sorted');
-      const arr = t.querySelector('.sort-arrow');
-      if (arr) arr.textContent = '';
-    });
-    th.classList.add('sorted');
-    const arrow = th.querySelector('.sort-arrow');
-    if (arrow) arrow.textContent = state.projSort.dir === 'asc' ? '↑' : '↓';
+    const dir = state.projSort.col === col ? (state.projSort.dir === 'asc' ? 'desc' : 'asc') : 'desc';
+    applyProjSort(col, dir);
     renderProjections();
   });
 });
@@ -899,6 +945,9 @@ document.getElementById('pos-filters').addEventListener('click', e => {
   document.querySelectorAll('#pos-filters .filter-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   state.projPos = btn.dataset.pos;
+  // Entering FLEX defaults the sort to VORP 10PPR (Joe's primary
+  // league); headers stay clickable to re-sort by anything afterward.
+  if (state.projPos === 'FLEX') applyProjSort('vorp10ppr', 'desc');
   renderProjections();
 });
 
@@ -998,11 +1047,72 @@ function buildRankingsCombined() {
   state.rankingsCombined.forEach(r => registerPlayer(r.name, r.pos, r.team));
 }
 
+/* ══════════════════════════════════════════════
+   VORP — two independent, fixed-scoring leagues
+   Each league config (state.leagues) carries its OWN scoring basis;
+   VORP always uses that, never state.format (the dashboard's display
+   toggle only changes what OTHER numbers look like, not these).
+   Source data is state.projBlended — a player missing from it simply
+   has no VORP in either league (never fabricated).
+══════════════════════════════════════════════ */
+function projFor(player, cfg) {
+  const v = cfg.scoring === 'ppr' ? player.proj_ppr : player.proj_std;
+  return typeof v === 'number' ? v : null;
+}
+
+function computeVorpForLeague(cfg) {
+  const vorpByKey = {};
+  const replacementRankByPos = {};
+  const positions = ['QB', 'RB', 'WR', 'TE']; // the only positions projBlended covers
+
+  const byPos = {};
+  Object.values(state.projBlended).forEach(p => {
+    if (projFor(p, cfg) == null) return;
+    (byPos[p.pos] = byPos[p.pos] || []).push(p);
+  });
+
+  const flexSpots = cfg.teams * (cfg.starters.FLEX || 0);
+  // FLEX spots are split EVENLY across flex-eligible positions — an
+  // approximation (real drafts don't split flex 50/50 by position),
+  // but a simple, defensible one absent real roster-construction data.
+  const flexShare = pos => cfg.flexEligible.includes(pos) ? flexSpots / cfg.flexEligible.length : 0;
+
+  positions.forEach(pos => {
+    const startersDrafted = cfg.teams * (cfg.starters[pos] || 0);
+    const benchDrafted = cfg.teams * (cfg.bench[pos] || 0);
+    const replacementRank = Math.round(startersDrafted + flexShare(pos) + benchDrafted);
+    replacementRankByPos[pos] = replacementRank;
+
+    const list = (byPos[pos] || []).slice().sort((a, b) => projFor(b, cfg) - projFor(a, cfg));
+    if (!list.length) return;
+    const idx = Math.min(Math.max(replacementRank - 1, 0), list.length - 1);
+    const replacementPoints = projFor(list[idx], cfg);
+
+    list.forEach(p => {
+      vorpByKey[normalizeName(p.name) + '|' + p.pos] = projFor(p, cfg) - replacementPoints;
+    });
+  });
+
+  return { vorpByKey, replacementRankByPos };
+}
+
+function computeAllVorp() {
+  state.vorp = {
+    joe: computeVorpForLeague(state.leagues[0]),
+    sam: computeVorpForLeague(state.leagues[1]),
+  };
+}
+
+function vorpFor(player, leagueId) {
+  const key = normalizeName(player.name) + '|' + (player.pos || '').toUpperCase();
+  const result = state.vorp[leagueId];
+  const v = result && result.vorpByKey[key];
+  return typeof v === 'number' ? v : null;
+}
+
 function renderRankings() {
   const tbody = document.getElementById('rank-body');
-  let rows = state.rankPos === 'ALL'
-    ? state.rankingsCombined.slice()
-    : state.rankingsCombined.filter(r => r.pos === state.rankPos);
+  let rows = state.rankingsCombined.filter(r => posMatches((r.pos || '').toUpperCase(), state.rankPos));
 
   if (!rows.length) {
     tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state">No ranking sources loaded</div></td></tr>`;
@@ -1080,7 +1190,9 @@ document.getElementById('rank-pos-filters').addEventListener('click', e => {
   if (!btn) return;
   document.querySelectorAll('#rank-pos-filters .filter-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-  state.rankPos = btn.dataset.pos;
+  state.rankPos = btn.dataset.pos; // posMatches() handles 'FLEX' the same as any other value
+  // Unlike Projections, this table has no VORP column, so FLEX here is
+  // filter-only — sort stays whatever it already was (default AVG PTS).
   renderRankings();
 });
 
@@ -1365,6 +1477,17 @@ function renderLookupCard() {
     ? bySourceOrder.filter(src => typeof adpRow[src] === 'number').map(src => `${src} ${adpRow[src]}`).join(' · ')
     : '';
 
+  // VORP: two independent numbers, one per fixed league config — never
+  // driven by the STD/PPR display toggle (each league has its own
+  // scoring baked into computeVorpForLeague).
+  const vorpJoe = vorpFor(r, 'joe');
+  const vorpSam = vorpFor(r, 'sam');
+  const replRanksText = vorpResult => {
+    if (!vorpResult) return '—';
+    return ['RB', 'WR', 'TE', 'QB'].map(pos => `${pos}${vorpResult.replacementRankByPos[pos] ?? '—'}`).join(' ');
+  };
+  const replLine = `repl 10PPR: ${replRanksText(state.vorp.joe)} · 8STD: ${replRanksText(state.vorp.sam)}`;
+
   const guideRows = [
     guideRow('ADP · CONSENSUS', consensusHtml),
     guideRow('ADP · ESPN', espnAdp),
@@ -1373,7 +1496,8 @@ function renderLookupCard() {
     guideRow('MARKET SCORE', guide && guide.market_score),
     guideRow('TARGET / AVOID / DART', flagText, flagColor),
     guideRow('CONFIDENCE', guide && guide.confidence_level),
-    guideRow('VORP', null),
+    guideRow('VORP · 10 PPR (JOE)', vorpJoe != null ? vorpJoe.toFixed(1) : null),
+    guideRow('VORP · 8 STD (SAM)', vorpSam != null ? vorpSam.toFixed(1) : null),
     guideRow('RECEPTION PERCEPTION', null),
   ].join('');
 
@@ -1396,6 +1520,8 @@ function renderLookupCard() {
     <div class="stat-card">
       <div class="stat-label" style="margin-bottom:10px;">SCOUTING / GUIDE${guide ? '' : ' — no data for this player'}</div>
       ${guideRows}
+      <div style="font-size:10px;color:var(--text3);letter-spacing:0.02em;margin-top:10px;">${replLine}</div>
+      <div style="font-size:10px;color:var(--text3);letter-spacing:0.02em;margin-top:4px;">VORP depends on league size, scoring, and bench assumptions (state.leagues) — one signal, not gospel.</div>
     </div>
   `;
 }
@@ -3184,10 +3310,13 @@ Oscar Delp,NO,TE,11.4,5.4,6.0,1`;
     console.warn('UDK blended projections failed to load; UDK column will show —', e);
     state.projBlended = {};
   }
-  // Only the Rankings table / Lookup card read state.projBlended — the
-  // Projections tab is ESPN-only and untouched by this file.
+  // The Rankings table's UDK column, the Projections table's two VORP
+  // columns, and the Lookup card all depend on state.projBlended.
+  // computeAllVorp() only needs to run again if projBlended reloads.
+  computeAllVorp();
   buildRankingsCombined();
   renderRankings();
+  renderProjections();
   if (state.lookupSelected) renderLookupCard();
 })();
 </script>
