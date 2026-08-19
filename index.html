@@ -635,6 +635,9 @@ const state = {
   format: 'ppr',   // 'std' | 'ppr' — single source of truth for scoring basis, site-wide
   lookupSelected: null,
   guideData: {}, // normalizeName(player)+'|'+pos -> {market_score, guide_adp, flag, confidence_level}
+  adpPpr: {},    // normalizeName(player)+'|'+pos -> {ESPN, Sleeper, CBS, RTSports, Fantrax} (values may be undefined)
+  adpStd: {},    // normalizeName(player)+'|'+pos -> {Sleeper, RTSports} (values may be undefined)
+  allPlayers: {}, // normalizeName(player)+'|'+pos -> {name, pos, team} — union of every loaded dataset, search index
 };
 
 /* ══════════════════════════════════════════════
@@ -662,6 +665,24 @@ function parseCSV(text) {
 
 function num(v, def = 0) { const n = parseFloat(v); return isNaN(n) ? def : n; }
 function fmt(v, dec = 1) { const n = parseFloat(v); return isNaN(n) ? '—' : n.toFixed(dec); }
+
+// Like num(), but a blank/missing cell stays undefined instead of
+// coercing to 0 — used for ADP source columns, where "no data from
+// this source" must never be averaged in as a 0.
+function numOrUndef(v) {
+  if (v === undefined || v === null || String(v).trim() === '') return undefined;
+  const n = parseFloat(v);
+  return isNaN(n) ? undefined : n;
+}
+
+// Averages only the sources actually present on this player's ADP row.
+// count is how many sources contributed — always show it alongside the
+// average so a 1-source number isn't mistaken for a firm consensus.
+function adpAverage(sourcesObj) {
+  const vals = Object.values(sourcesObj || {}).filter(v => typeof v === 'number');
+  if (!vals.length) return { avg: null, count: 0 };
+  return { avg: vals.reduce((a, b) => a + b, 0) / vals.length, count: vals.length };
+}
 
 /* ══════════════════════════════════════════════
    STD <-> PPR CONVERSION  (single global toggle: state.format)
@@ -904,13 +925,39 @@ document.getElementById('pos-filters').addEventListener('click', e => {
 ══════════════════════════════════════════════ */
 state.rankSources = {}; // e.g. { Andy: { QB: [...], RB: [...] }, Mike: {...} }
 
+// Known cases where sources spell the same player differently. Applied
+// as the FINAL step of normalizeName so every keyed dataset (rankings,
+// guideData, adpPpr, adpStd, the lookup search index) resolves to one
+// canonical key — otherwise a name mismatch silently splits one player
+// into two separate rows.
+const NAME_ALIASES = {
+  'kenneth gainwell': 'kenny gainwell',
+  'nick singleton': 'nicholas singleton',
+};
+
 function normalizeName(n) {
-  return (n || '')
+  const base = (n || '')
     .toLowerCase()
     .replace(/[.'']/g, '')
     .replace(/\b(jr|sr|ii|iii|iv|v)\b/g, '')
     .replace(/\s+/g, ' ')
     .trim();
+  return NAME_ALIASES[base] || base;
+}
+
+// Union search index across every loaded dataset (rankings, guideData,
+// adpPpr, adpStd) so a player who only exists in the guide/ADP CSVs —
+// never projected by ESPN or any UDK ranker — is still findable in
+// Player Lookup. Safe to call repeatedly; first registration for a key
+// wins the name/pos, a later one only backfills a missing team.
+function registerPlayer(name, pos, team) {
+  if (!name || !pos) return;
+  const key = normalizeName(name) + '|' + pos;
+  if (!state.allPlayers[key]) {
+    state.allPlayers[key] = { name, pos, team: team || '' };
+  } else if (team && !state.allPlayers[key].team) {
+    state.allPlayers[key].team = team;
+  }
 }
 
 function buildRankingsCombined() {
@@ -943,6 +990,8 @@ function buildRankingsCombined() {
     r.avgEstimated = ptsEntries.some(p => p.estimated);
     return r;
   });
+
+  state.rankingsCombined.forEach(r => registerPlayer(r.name, r.pos, r.team));
 }
 
 function renderRankings() {
@@ -1221,7 +1270,10 @@ function lookupMatches(query) {
   const q = normalizeName(query);
   if (!q || q.length < 2) return [];
   if (!state.rankingsCombined.length) buildRankingsCombined();
-  return state.rankingsCombined
+  // Search the union index, not just rankingsCombined — a player who
+  // only appears in guideData/adpPpr/adpStd (never projected by ESPN or
+  // a UDK ranker) must still be findable here.
+  return Object.values(state.allPlayers)
     .filter(r => normalizeName(r.name).includes(q))
     .slice(0, 8);
 }
@@ -1243,7 +1295,12 @@ function renderLookupDropdown(matches) {
 }
 
 function selectLookupPlayer(row) {
-  state.lookupSelected = row;
+  // row comes from the union search index ({name, pos, team}); prefer the
+  // richer rankingsCombined row (adds pts/avg) when this player has one —
+  // a guide/ADP-only player like Ricky Pearsall won't, and that's fine.
+  const key = normalizeName(row.name) + '|' + row.pos;
+  const full = state.rankingsCombined.find(r => normalizeName(r.name) + '|' + r.pos === key);
+  state.lookupSelected = full || row;
   document.getElementById('lookup-input').value = row.name;
   document.getElementById('lookup-dropdown').classList.remove('open');
   renderLookupCard();
@@ -1267,8 +1324,9 @@ function renderLookupCard() {
       ? `<span class="pts-estimated" title="estimated — no reception data">~${txt}</span>`
       : txt;
   };
+  const rPts = r.pts || {};
   const sourceRows = ['ESPN', 'Andy', 'Mike', 'Jason'].map(src => `
-    <tr><td>${src}</td><td class="r">${cell(r.pts[src])}</td></tr>`).join('');
+    <tr><td>${src}</td><td class="r">${cell(rPts[src])}</td></tr>`).join('');
   const avgTxt = r.avg != null ? `${r.avgEstimated ? '~' : ''}${r.avg.toFixed(1)}` : '—';
 
   // Fill from guide-data.csv when this player has a row there; otherwise
@@ -1287,8 +1345,29 @@ function renderLookupCard() {
   const flagText = flagRaw ? flagRaw.toUpperCase() : null;
   const flagColor = flagRaw ? FLAG_COLOR[flagRaw.toLowerCase()] : null;
 
+  // ADP: pick the file matching the active STD/PPR toggle so these rows
+  // always re-render in the right basis when the format flips.
+  const adpKey = normalizeName(r.name) + '|' + r.pos;
+  const adpSource = state.format === 'ppr' ? state.adpPpr : state.adpStd;
+  const adpRow = adpSource[adpKey]; // may be undefined
+  const consensus = adpAverage(adpRow);
+  const consensusHtml = consensus.avg != null
+    ? `${consensus.avg.toFixed(1)} <span style="color:var(--text3);font-size:10px;">(avg of ${consensus.count})</span>`
+    : '—';
+  // ESPN only ranks PPR — never fall back to the PPR value while in STD.
+  const espnAdp = state.format === 'ppr' && adpRow ? adpRow.ESPN : undefined;
+  const bySourceOrder = state.format === 'ppr'
+    ? ['ESPN', 'Sleeper', 'CBS', 'RTSports', 'Fantrax']
+    : ['Sleeper', 'RTSports'];
+  const bySourceText = adpRow
+    ? bySourceOrder.filter(src => typeof adpRow[src] === 'number').map(src => `${src} ${adpRow[src]}`).join(' · ')
+    : '';
+
   const guideRows = [
-    guideRow('ADP', guide && guide.guide_adp),
+    guideRow('ADP · CONSENSUS', consensusHtml),
+    guideRow('ADP · ESPN', espnAdp),
+    guideRow('ADP · BY SOURCE', bySourceText || null),
+    guideRow('ADP · GUIDE', guide && guide.guide_adp),
     guideRow('MARKET SCORE', guide && guide.market_score),
     guideRow('TARGET / AVOID / DART', flagText, flagColor),
     guideRow('CONFIDENCE', guide && guide.confidence_level),
@@ -1685,15 +1764,1067 @@ Greg Dulcich,TE,,,dart,5`;
   const rows = parseCSV(GUIDE_DATA_CSV);
   const guideData = {};
   rows.forEach(row => {
-    const key = normalizeName(row.player) + '|' + (row.position || '').toUpperCase();
+    const pos = (row.position || '').toUpperCase();
+    const key = normalizeName(row.player) + '|' + pos;
     guideData[key] = {
       market_score: row.market_score,
       guide_adp: row.guide_adp,
       flag: row.flag,
       confidence_level: row.confidence_level,
     };
+    registerPlayer(row.player, pos);
   });
   state.guideData = guideData;
+})();
+
+/* ══════════════════════════════════════════════
+   ADP DATA  (ppr-adps.csv / standard-adps.csv)
+   Two files, one per scoring format, each an average-it-yourself
+   consensus: player_clean/position_clean are the join keys, every
+   other column is one source's ADP for that player. A blank cell means
+   that source didn't rank the player — excluded from any average, never
+   treated as 0 (see numOrUndef/adpAverage above). Loaded the same way
+   as guide-data.csv; if parsing ever fails, state.adpPpr/adpStd just
+   stay {} (set in the initial state object) and the lookup card shows
+   "—" for every ADP row instead of throwing.
+══════════════════════════════════════════════════ */
+(function loadADPDefaults() {
+  try {
+    const PPR_ADP_CSV = `player_clean,position_clean,ESPN,Sleeper,CBS,RTSports,Fantrax
+Jahmyr Gibbs,RB,1,1,1,1,1
+Bijan Robinson,RB,2,2,2,2,2
+Ja'Marr Chase,WR,3,3,3,3,3
+Puka Nacua,WR,4,4,4,4,4
+Christian McCaffrey,RB,6,5,6,5,5
+Jaxon Smith-Njigba,WR,5,6,7,6,6
+Jonathan Taylor,RB,7,7,5,7,7
+Amon-Ra St. Brown,WR,8,8,8,9,8
+James Cook III,RB,12,10,9,10,10
+Ashton Jeanty,RB,14,14,11,8,9
+De'Von Achane,RB,10,12,10,11,14
+CeeDee Lamb,WR,9,9,15,15,12
+Justin Jefferson,WR,11,11,16,13,11
+Saquon Barkley,RB,13,13,13,16,16
+Chase Brown,RB,23,17,12,12,13
+Omarion Hampton,RB,25,15,18,14,15
+Drake London,WR,16,16,17,19,20
+Derrick Henry,RB,18,21,14,20,21
+Kenneth Walker III,RB,21,19,20,17,18
+A.J. Brown,WR,24,18,23,21,17
+Trey McBride,TE,17,20,25,18,25
+Brock Bowers,TE,22,22,27,22,19
+Josh Allen,QB,19,23,19,25,32
+George Pickens,WR,27,24,21,23,26
+Nico Collins,WR,26,25,26,27,23
+Rashee Rice,WR,20,27,22,33,27
+Jeremiyah Love,RB,15,26,29,28,33
+Chris Olave,WR,30,30,30,26,22
+Malik Nabers,WR,32,28,33,30,24
+Kyren Williams,RB,38,29,24,31,28
+Breece Hall,RB,28,32,32,32,31
+Javonte Williams,RB,33,36,34,24,30
+Josh Jacobs,RB,29,31,28,29,40
+DeVonta Smith,WR,35,37,36,38,29
+Zay Flowers,WR,36,42,35,36,34
+Cam Skattebo,RB,39,43,31,35,41
+Emeka Egbuka,WR,40,40,37,37,38
+Tetairoa McMillan,WR,37,35,43,43,36
+Garrett Wilson,WR,31,45,47,42,39
+Travis Etienne Jr.,RB,45,44,42,40,35
+Tee Higgins,WR,51,34,38,47,37
+Lamar Jackson,QB,34,33,40,53,50
+Colston Loveland,TE,41,41,45,49,42
+Bucky Irving,RB,50,39,41,41,58
+Ladd McConkey,WR,48,38,44,44,56
+Quinshon Judkins,RB,49,53,46,34,49
+Tyler Warren,TE,42,46,51,55,52
+Jaylen Waddle,WR,53,47,50,54,43
+D'Andre Swift,RB,59,56,39,51,46
+Davante Adams,WR,44,50,55,58,45
+David Montgomery,RB,62,51,52,45,48
+Drake Maye,QB,43,48,49,66,57
+DJ Moore,WR,57,58,58,39,53
+TreVeyon Henderson,RB,64,52,60,50,44
+Luther Burden III,WR,66,49,62,46,47
+Terry McLaurin,WR,54,55,54,56,51
+Joe Burrow,QB,52,54,48,64,54
+Jameson Williams,WR,58,57,56,57,55
+Bhayshul Tuten,RB,67,61,53,48,61
+Jayden Daniels,QB,46,62,63,68,67
+Rome Odunze,WR,60,66,59,59,64
+Jadarian Price,RB,69,69,61,52,65
+Jalen Hurts,QB,47,64,67,76,70
+Mike Evans,WR,80,59,64,60,62
+Harold Fannin Jr.,TE,65,67,78,61,76
+Sam LaPorta,TE,55,60,65,88,85
+Carnell Tate,WR,61,63,85,78,66
+Christian Watson,WR,90,70,69,67,59
+Kyle Pitts Sr.,TE,56,68,66,86,80
+Tucker Kraft,TE,83,65,73,70,73
+Jaylen Warren,RB,92,73,72,62,72
+Caleb Williams,QB,78,71,70,89,69
+Marvin Harrison Jr.,WR,77,75,75,79,71
+Parker Washington,WR,86,78,81,73,60
+Dak Prescott,QB,73,81,57,91,79
+Courtland Sutton,WR,70,79,77,82,75
+Tony Pollard,RB,82,87,68,71,77
+Brian Thomas Jr.,WR,95,72,79,77,68
+DK Metcalf,WR,74,74,87,87,78
+Rhamondre Stevenson,RB,91,85,80,72,83
+Rico Dowdle,RB,102,88,76,63,87
+RJ Harvey,RB,126,80,74,65,74
+Chuba Hubbard,RB,107,76,86,81,88
+Trevor Lawrence,QB,81,98,84,94,91
+Justin Herbert,QB,100,84,82,98,84
+Michael Wilson,WR,96,83,110,69,93
+Jaxson Dart,QB,63,82,99,107,101
+Alec Pierce,WR,84,97,71,99,108
+J.K. Dobbins,RB,114,92,89,80,94
+Jonathon Brooks,RB,115,123,94,75,63
+Matthew Stafford,QB,68,99,90,119,95
+George Kittle,TE,85,91,91,106,104
+Michael Pittman Jr.,WR,76,103,115,100,96
+Wan'Dale Robinson,WR,108,109,102,74,99
+Houston Texans,DST,72,101,96,126,100
+Travis Kelce,TE,87,93,101,101,115
+Kyle Monangai,RB,120,95,103,84,97
+Brandon Aubrey,K,71,94,105,113,118
+Chris Godwin Jr.,WR,142,96,95,85,86
+Josh Downs,WR,110,110,107,102,82
+Kenny Gainwell,RB,112,112,98,96,102
+Patrick Mahomes II,QB,101,106,97,116,103
+Jordyn Tyson,WR,97,77,112,97,141
+Brock Purdy,QB,93,117,92,124,110
+Makai Lemon,WR,128,86,120,111,92
+Blake Corum,RB,137,104,108,90,98
+Quentin Johnston,WR,138,107,100,103,90
+Isaiah Likely,TE,118,113,93,95,124
+Jordan Addison,WR,111,105,117,105,105
+Jakobi Meyers,WR,106,102,116,112,109
+Bo Nix,QB,75,119,121,118,113
+Stefon Diggs,WR,121,116,124,104,81
+Jake Ferguson,TE,103,100,119,117,107
+Rachaad White,RB,123,128,118,92,89
+Los Angeles Rams,DST,88,89,111,138,131
+Jacory Croskey-Merritt,RB,133,111,106,93,114
+Denver Broncos,DST,79,122,88,143,127
+Jordan Mason,RB,147,120,104,83,106
+Dallas Goedert,TE,89,124,83,144,122
+Aaron Jones Sr.,RB,116,121,114,108,116
+Jayden Reed,WR,134,114,127,110,111
+Seattle Seahawks,DST,99,108,113,145,139
+Dalton Kincaid,TE,129,90,125,132,130
+Jared Goff,QB,135,133,109,121,112
+Mark Andrews,TE,113,130,122,120,136
+Matthew Golden,WR,98,131,139,140,123
+KC Concepcion,WR,146,129,130,131,117
+Deebo Samuel Sr.,WR,132,137,126,129,142
+Xavier Worthy,WR,131,139,137,137,125
+Cameron Dicker,K,94,118,142,146,171
+Romeo Doubs,WR,150,127,149,127,121
+Jason Myers,K,105,126,123,160,167
+Baker Mayfield,QB,144,142,128,142,129
+Zach Charbonnet,RB,152,141,132,115,146
+Ka'imi Fairbairn,K,124,134,133,151,150
+Khalil Shakir,WR,117,138,148,157,134
+Philadelphia Eagles,DST,127,125,129,152,162
+Kyler Murray,QB,141,158,136,141,120
+Woody Marks,RB,149,165,145,109,143
+Tyrone Tracy Jr.,RB,176,159,131,114,135
+Jayden Higgins,WR,160,140,150,148,119
+Alvin Kamara,RB,155,160,135,122,153
+Chris Rodriguez Jr.,RB,181,156,138,125,133
+Jordan Love,QB,156,146,144,162,128
+Jalen Coker,WR,161,145,158,150,126
+Rashid Shaheed,WR,157,157,154,130,145
+Tyler Shough,QB,154,168,151,147,132
+Cam Little,K,130,135,162,158,169
+De'Zhaun Stribling,WR,166,174,140,134,148
+Tyjae Spears,RB,173,170,153,123,147
+Pittsburgh Steelers,DST,104,161,152,176,180
+Tyler Allgeier,RB,201,148,160,128,140
+Isiah Pacheco,RB,159,185,147,135,152
+New England Patriots,DST,145,144,155,166,176
+Hunter Henry,TE,139,132,173,165,190
+Juwan Johnson,TE,169,188,156,133,155
+Brenton Strange,TE,184,150,143,174,154
+Baltimore Ravens,DST,122,136,161,210,183
+T.J. Hockenson,TE,125,163,204,167,163
+Minnesota Vikings,DST,192,152,134,171,174
+Brian Robinson Jr.,RB,175,147,179,155,168
+Denzel Boston,WR,178,162,165,163,158
+Jake Bates,K,153,155,167,173,186
+Kenyon Sadiq,TE,136,143,193,186,179
+Harrison Mevis,K,119,149,177,180,216
+Malik Willis,QB,180,190,159,172,144
+Tank Bigsby,RB,189,184,183,149,165
+Chig Okonkwo,TE,212,169,180,161,156
+Los Angeles Chargers,DST,165,179,166,182,187
+Jacksonville Jaguars,DST,183,171,185,175,182
+Jerry Jeudy,WR,167,194,178,169,192
+Tank Dell,WR,207,178,146,185,188
+C.J. Stroud,QB,170,187,170,197,189
+Eddy Pineiro,K,143,173,197,194,207
+Tyler Loop,K,168,201,191,179,177
+Daniel Jones,QB,158,204,157,207,195
+Tre Tucker,WR,190,206,171,205,157
+Detroit Lions,DST,148,151,163,257,213
+Dalton Schultz,TE,185,193,184,227,184
+Harrison Butker,K,140,180,189,240,229
+Ja'Kobi Lane,WR,179,176,182,188,253
+Sam Darnold,QB,163,175,141,181,321
+Green Bay Packers,DST,188,202,202,189,209
+Keaton Mitchell,RB,,181,164,136,137
+Mike Washington Jr.,RB,239,203,198,164,220
+Chris Boswell,K,162,154,206,246,261
+Will Reichard,K,172,166,209,234,262
+Oronde Gadsden II,TE,,115,172,209,151
+AJ Barner,TE,202,186,217,244,200
+Evan McPherson,K,196,182,210,251,214
+Calvin Ridley,WR,186,306,214,156,196
+Jonah Coleman,RB,,167,187,139,175
+Jalen Nailor,WR,,183,169,154,166
+Kansas City Chiefs,DST,164,209,216,267,215
+Dylan Sampson,RB,,191,168,159,161
+Cooper Kupp,WR,200,238,200,229,212
+Buffalo Bills,DST,199,228,203,235,226
+Cairo Santos,K,182,216,190,256,255
+Omar Cooper Jr.,WR,,172,195,191,160
+Jauan Jennings,WR,,192,205,178,149
+Chicago Bears,DST,203,232,201,258,237
+Chase McLaughlin,K,206,236,196,233,266
+Jalen McMillan,WR,187,196,,193,164
+Cleveland Browns,DST,151,335,213,247,223
+Braelon Allen,RB,,219,194,177,181
+MarShawn Lloyd,RB,,231,181,153,211
+Terrance Ferguson,TE,171,211,,250,159
+Cam Ward,QB,191,207,,221,198
+David Njoku,TE,221,208,,170,239
+Dallas Cowboys,DST,174,198,,220,259
+Bryce Young,QB,195,241,,215,203
+James Conner,RB,,218,211,228,197
+Fernando Mendoza,QB,177,177,,238,263
+Keenan Allen,WR,242,253,,230,138
+Wil Lutz,K,222,307,199,254,285
+Travis Hunter,WR,109,164,,211,
+Cyrus Allen,WR,219,199,,222,246
+Tyreek Hill,WR,235,210,,200,242
+Greg Dulcich,TE,,255,208,232,202
+Cade Otton,TE,,220,212,249,221
+Adonai Mitchell,WR,263,223,,223,201
+San Francisco 49ers,DST,193,230,,266,232
+Aaron Rodgers,QB,204,246,,237,235
+Pat Freiermuth,TE,197,270,,252,217
+Malachi Fields,WR,250,239,,199,250
+New York Giants,DST,208,249,,241,256
+Malik Washington,WR,,200,,187,172
+New Orleans Saints,DST,459,286,186,259,247
+Tre' Harris,WR,,214,,190,178
+Jake Elliott,K,194,227,,261,299
+Justice Hill,RB,,,215,184,193
+Zachariah Branch,WR,,189,,201,210
+Andy Borregales,K,,153,,206,243
+Kayshon Boutte,WR,,226,,168,208
+Jordan James,RB,,,188,214,225
+Jaydon Blue,RB,,254,,183,194
+Nicholas Singleton,RB,,195,,192,252
+Emmett Johnson,RB,,197,,219,228
+Isaac TeSlaa,WR,,212,,264,170
+Ray Davis,RB,,262,,196,191
+Atlanta Falcons,DST,,242,174,,234
+Kimani Vidal,RB,,267,,213,185
+Kaelon Black,RB,,,207,203,260
+Rashod Bateman,WR,,252,192,,240
+Ryan Flournoy,WR,,258,,262,173
+Antonio Williams,WR,,222,,272,204
+Sean Tucker,RB,,283,,198,224
+Jacoby Brissett,QB,,281,,204,222
+Tampa Bay Buccaneers,DST,217,251,,,245
+Germie Bernard,WR,,248,,226,241
+Caleb Douglas,WR,248,,,202,273
+Kaytron Allen,RB,,266,,218,244
+Tyler Bass,K,215,379,,263,272
+Shedeur Sanders,QB,213,259,,,265
+Darnell Mooney,WR,,296,,248,205
+J.J. McCarthy,QB,220,233,,,297
+Christian Kirk,WR,,276,,212,264
+Trey Smack,K,198,,,260,296
+Jaylen Wright,RB,,291,,216,248
+Gunnar Helm,TE,,257,,271,230
+Tennessee Titans,DST,260,342,,268,295
+Emanuel Wilson,RB,,298,,253,219
+Carolina Panthers,DST,227,265,,,278
+Kaleb Johnson,RB,,221,,242,318
+Demond Claiborne,RB,,279,,225,277
+Pat Bryant,WR,,247,,255,280
+Jake Tonges,TE,,274,,243,267
+Eli Stowers,TE,252,263,,,270
+Keon Coleman,WR,,256,,265,274
+Dontayvion Wicks,WR,,,,195,206
+Cincinnati Bengals,DST,233,273,,,307
+George Holani,RB,,,,208,231
+Devaughn Vele,WR,,269,,245,325
+Kyle Williams,WR,301,229,,,329
+Matt Gay,K,210,329,,,324
+Las Vegas Raiders,DST,224,356,,,286
+Indianapolis Colts,DST,,224,,,249
+Nick Folk,K,,364,175,,351
+Troy Franklin,WR,,277,,,218
+Mason Taylor,TE,388,234,,,276
+Brandon Aiyuk,WR,,301,,,199
+Washington Commanders,DST,218,,,,284
+Samaje Perine,RB,,,,236,268
+Ted Hurst III,WR,,268,,,236
+Ty Simpson,QB,269,278,,,358
+Jaylin Noel,WR,,217,,,291
+Michael Penix Jr.,QB,,240,,,269
+Darnell Washington,TE,209,,,,305
+Tua Tagovailoa,QB,,260,,,257
+Marvin Mims Jr.,WR,,225,,,294
+Kirk Cousins,QB,268,,,,251
+Jack Bech,WR,,264,,,258
+Cole Kmet,TE,226,,,,298
+Ty Johnson,RB,,,,217,309
+Colby Parkinson,TE,,302,,,227
+Carson Beck,QB,229,,,,302
+Tory Horton,WR,,243,,,288
+Blake Grupe,K,,,176,,359
+Jalen Tolbert,WR,,,,231,304
+Devin Singletary,RB,,,,224,314
+LeQuint Allen Jr.,RB,,,,270,283
+Brashard Smith,RB,,237,,,317
+Chris Bell,WR,,272,,,282
+Ollie Gordon II,RB,,,,273,281
+Arizona Cardinals,DST,228,347,,,380
+DJ Giddens,RB,,,,269,290
+Elic Ayomanor,WR,,275,,,287
+Justin Fields,QB,257,,,,310
+Hollywood Brown,WR,280,,,,289
+Theo Johnson,TE,,250,,,323
+Miami Dolphins,DST,211,380,,,381
+Joe Flacco,QB,258,,,,319
+Joe Mixon,RB,374,205,,,
+Elijah Arroyo,TE,251,,,,328
+Riley Patterson,K,259,336,,,388
+Elijah Sarratt,WR,,244,,,341
+Dawson Knox,TE,230,,,,356
+Kareem Hunt,RB,441,,,239,348
+Chimere Dike,WR,,245,,,343
+Jameis Winston,QB,264,,,,326
+Joshua Palmer,WR,277,,,,316
+Skyler Bell,WR,283,,,,311
+Najee Harris,RB,380,215,,,
+Mac Jones,QB,295,,,,308
+Odell Beckham Jr.,WR,205,,,,
+Luke McCaffrey,WR,261,,,,344
+Tyler Higbee,TE,241,,,,369
+Ben Sauls,K,225,,,,386
+Devin Neal,RB,433,213,,,
+New York Jets,DST,294,360,,,357
+Justin Tucker,K,214,,,,
+Philip Rivers,QB,216,,,,
+Jake Moody,K,234,,,,383
+Mack Hollins,WR,284,,,,336
+Younghoe Koo,K,223,,,,
+Trey Benson,RB,312,311,,,
+Kyle Allen,QB,287,,,,337
+Ryan Fitzgerald,K,231,,,,394
+Lil'Jordan Humphrey,WR,232,,,,
+Mike Gesicki,TE,,,,,233
+Andre Szmyt,K,237,,,,395
+Kendre Miller,RB,,235,,,
+Dominic Zvada,K,236,,,,
+Joey Slye,K,243,,,,393
+Spencer Shrader,K,245,,,,391
+Evan Engram,TE,,,,,238
+Jason Sanders,K,238,,,,
+Drew Allar,QB,240,,,,
+Chad Ryland,K,244,,,,
+Noah Gray,TE,254,,,,389
+Caden Davis,K,246,,,,
+Sal Cannella,TE,247,,,,
+KaVontae Turpin,WR,249,,,,
+JuJu Smith-Schuster,WR,253,,,,
+Emari Demercado,RB,,,,,254
+Luke Schoonmaker,TE,255,,,,
+Brock Wright,TE,256,,,,
+Jordan Whittington,WR,281,,,,375
+Audric Estime,RB,,261,,,
+Kadarius Toney,WR,262,,,,
+Isaiah Bond,WR,300,,,,361
+Tommy DeVito,QB,265,,,,
+Nick Chubb,RB,266,,,,
+Ezekiel Elliott,RB,267,,,,
+Ja'Tavion Sanders,TE,296,,,,372
+Eli Raridon,TE,323,,,,345
+Kyle Juszczyk,RB,270,,,,
+Geno Smith,QB,,,,,271
+Joshua Dobbs,QB,271,,,,
+Jarquez Hunter,RB,,271,,,
+Jermar Jefferson,RB,272,,,,
+Devontez Walker,WR,392,,,,279
+Israel Abanikanda,RB,273,,,,
+Brandon McManus,K,274,,,,
+Luke Musgrave,TE,302,,,,371
+Deshaun Watson,QB,,,,,275
+Kalif Raymond,WR,276,,,,
+Elijah Higgins,TE,278,,,,
+Josh Oliver,TE,279,,,,
+Malik Williams,WR,,280,,,
+Nate Sudfeld,QB,,282,,,
+Roman Wilson,WR,282,,,,
+Max Klare,TE,389,293,,,
+Tyler Huntley,QB,356,,,,327
+Kenny Pickett,QB,285,,,,
+Tyrod Taylor,QB,330,,,,354
+Cade Klubnik,QB,286,,,,
+Zavion Thomas,WR,299,,,,387
+Kaden Wetjen,WR,288,,,,
+Ramel Keyton,WR,,289,,,
+Will Howard,QB,290,,,,
+Trey Lance,QB,355,,,,334
+Konata Mumpfield,WR,347,,,,342
+Matt Prater,K,291,,,,
+Andrei Iosivas,WR,,,,,292
+Jude McAtamney,K,292,,,,
+Anthony Hill Jr.,LB,,292,,,
+Chris Brooks,RB,,,,,293
+John Samuel Shenker,TE,293,,,,
+Lincoln Sefcik,TE,,294,,,
+Nate Wieting,TE,,295,,,
+Tommy Tremble,TE,297,,,,
+Michael Trigg,TE,,297,,,
+Tyson Bagent,QB,298,,,,
+Michael Mayer,TE,,,,,300
+Jermod McCoy,CB,,300,,,
+Malik Davis,RB,,,,,301
+Darius Slayton,WR,,,,,303
+Kyle Shurmur,QB,,303,,,
+Brevyn Spann-Ford,TE,303,,,,
+Josh Adams,RB,,304,,,
+Jahdae Walker,WR,304,,,,
+Drew Lock,QB,305,,,,
+Derek Wright,WR,,305,,,
+Quinn Ewers,QB,306,,,,
+Xavier Legette,WR,,,,,306
+Myles Price,WR,307,,,,
+Efton Chism III,WR,308,,,,
+Ray-Ray McCloud III,WR,309,,,,
+Mo Alie-Cox,TE,326,,,,382
+Stetson Bennett IV,QB,310,,,,
+Noah Short,WR,,310,,,
+Jake Bobo,WR,311,,,,
+Darren Waller,TE,,,,,312
+Spencer Brown,RB,,312,,,
+Tyquan Thornton,WR,,,,,313
+Joe Milton III,QB,313,,,,
+Dalvin Cook,RB,314,,,,
+J.J. Taylor,RB,449,314,,,
+Zane Gonzalez,K,315,,,,
+Jahan Dotson,WR,,,,,315
+Mike Boone,RB,,316,,,
+Dustin Hopkins,K,317,,,,
+Matt Seybert,TE,,317,,,
+Cade York,K,318,,,,
+Trevon Clark,WR,,318,,,
+DeShon Williams,TE,,319,,,
+Michael Pratt,QB,319,,,,
+John Metchie III,WR,,,,,320
+Parker Romo,K,320,,,,
+Chamon Metayer,TE,,320,,,
+Tyree Mayfield,TE,,321,,,
+Josh Williams,RB,321,,,,
+Jalen Morton,QB,,322,,,
+Isaiah Davis,RB,,,,,322
+Colbie Young,WR,322,,,,
+Jalen Hurd,WR,,323,,,
+Noah Fant,TE,324,,,,
+Reggie White Jr.,WR,,324,,,
+Adam Trautman,TE,325,,,,
+Giovanni Ricci,TE,,325,,,
+MyCole Pruitt,TE,,326,,,
+Vyncint Smith,WR,,327,,,
+Jimmy Horn Jr.,WR,327,,,,
+Calvin Austin III,WR,328,,,,
+Tanner McKee,QB,329,,,,
+AJ McCarron,QB,,330,,,
+Jake Browning,QB,,,,,330
+Spencer Rattler,QB,331,,,,
+Thayer Thomas,WR,,331,,,
+Charlie Smyth,K,,340,,,390
+Marcus Mariota,QB,460,,,,331
+Trenton Cannon,RB,,332,,,
+Darius Cooper,WR,332,,,,
+Connor Heyward,TE,475,,,,332
+Chase Daniel,QB,,333,,,
+Jonathan Mingo,WR,333,,,,
+DeMario Douglas,WR,,,,,333
+Ben Skowronek,WR,334,,,,
+Melvin Gordon III,RB,,,,,335
+Tim Patrick,WR,335,,,,
+Junior Bergen,WR,385,349,,,
+Will Levis,QB,336,,,,
+Drew Estrada,WR,,337,,,
+Bub Means,WR,337,,,,
+Taysom Hill,TE,338,,,,
+Devin Gray,WR,,338,,,
+Jawhar Jordan,RB,,,,,338
+Austin Seibert,K,339,,,,
+Dean Connors,RB,,,,,339
+Brayden Narveson,K,456,339,,,
+Daniel Carlson,K,340,,,,
+Seth McGowan,RB,,,,,340
+Sam Sloman,K,,341,,,
+DeWayne McBride,RB,341,,,,
+Jordan Travis,QB,342,,,,
+Luke Lachey,TE,343,,,,
+Mante Morrow,WR,,343,,,
+Austin Hooper,TE,344,,,,
+Deontay Burnett,WR,,344,,,
+Brian Lewerke,QB,,345,,,
+Anthony Richardson Sr.,QB,345,,,,
+Tutu Atwell,WR,,,,,346
+Sam Howell,QB,346,,,,
+Robert Tonyan,TE,492,,,,347
+Brenen Thompson,WR,348,,,,
+Will Shipley,RB,,,,,349
+Jackson Hawes,TE,349,,,,
+Davis Webb,QB,,350,,,
+Joe Royer,TE,350,,,,
+Greg Dortch,WR,402,,,,350
+Bo Melton,WR,351,,,,
+Xavier Smith,WR,352,,,,
+Elijah Tau-Tolliver,RB,,352,,,
+Charlie Kolar,TE,464,,,,352
+CJ Daniels,WR,353,,,,
+Riley Leonard,QB,406,,,,353
+Mecole Hardman Jr.,WR,421,353,,,
+Demarcus Robinson,WR,354,,,,
+Graham Gano,K,446,354,,,
+Mathieu Severance,RB,,355,,,
+Olamide Zaccheaus,WR,465,,,,355
+Seydou Traore,TE,,357,,,
+Riley Nowakowski,TE,357,,,,
+Mitchell Trubisky,QB,358,,,,
+Patrick Ricard,RB,359,,,,
+Cam Johnson,WR,,359,,,
+Cedric Tillman,WR,360,,,,
+Tahj Brooks,RB,,,,,360
+Braxton Berrios,WR,361,,,,
+Austin Stogner,TE,,361,,,
+Mason Rudolph,QB,362,,,,
+Carson Steele,RB,,362,,,
+Andy Dalton,QB,424,,,,362
+Dante Pettis,WR,363,,,,
+Graham Adomitis,TE,,363,,,
+Kevin Coleman Jr.,WR,,,,,363
+Marquez Valdes-Scantling,WR,364,,,,
+Jaylin Lane,WR,,,,,364
+AJ Dillon,RB,365,,,,
+Jaxon Janke,WR,,365,,,
+Tanner Koziol,TE,,,,,365
+Van Jefferson,WR,366,,,,
+Malcolm Epps,TE,,366,,,
+Trevor Etienne,RB,,,,,366
+Albert Okwuegbunam Jr.,TE,367,,,,
+Lorenzo Lingard,RB,,367,,,
+Oscar Delp,TE,401,,,,367
+Nick Westbrook-Ikhine,WR,,,,,368
+Roschon Johnson,RB,368,,,,
+Ryan Coe,K,,368,,,
+Damarea Crockett,RB,,369,,,
+Frank Gore Jr.,RB,369,,,,
+Jalen Milroe,QB,370,,,,
+Adam Randall,RB,,,,,370
+Michael Wortham,WR,,370,,,
+Ulysses Bentley IV,RB,371,,,,
+Jacob Warren,TE,,371,,,
+James Turner,K,,372,,,
+Eli Heidenreich,RB,372,,,,
+Greg Joseph,K,373,,,,
+Athan Kaliakmanis,QB,438,373,,,
+Will Kacmarek,TE,463,,,,373
+Jordan Thomas,TE,,374,,,
+Daniel Bellinger,TE,466,,,,374
+John Ross,WR,375,,,,
+Michael Badgley,K,376,,,,
+Treylon Burks,WR,,,,,376
+Seth Green,TE,,376,,,
+DeAndre Hopkins,WR,377,,,,
+Caleb Shudak,K,,377,,,
+Justin Joly,TE,405,,,,377
+Tyler Eifert,TE,,378,,,
+Derek Carr,QB,378,,,,
+Raheim Sanders,RB,434,,,,378
+Jimmy Garoppolo,QB,379,,,,
+Marlin Klein,TE,480,,,,379
+Max Duggan,QB,381,,,,
+Tanner Brown,K,382,,,,
+Jacob Kibodi,RB,383,,,,
+Tommy Mellott,WR,384,,,,
+Dont'e Thornton Jr.,WR,473,,,,384
+Xavier Hutchinson,WR,,,,,385
+Ja'Corey Brooks,WR,386,,,,
+Jacob Saylors,RB,387,,,,
+Jarrett Stidham,QB,390,,,,
+Isaiah Williams,WR,391,,,,
+Kendrick Bourne,WR,462,,,,392
+Bryce Lance,WR,393,,,,
+Drew Sample,TE,394,,,,
+Cade Stover,TE,395,,,,
+Hunter Luepke,RB,396,,,,
+Chris Brazzell II,WR,,,,,396
+Durham Smythe,TE,397,,,,
+Tez Johnson,WR,398,,,,
+Brendan Sorsby,QB,,,,,398
+Jalen Royals,WR,399,,,,
+KeAndre Lambert-Smith,WR,400,,,,
+Barion Brown,WR,403,,,,
+Mitch Tinsley,WR,404,,,,
+Tai Felton,WR,407,,,,
+Tyler Conklin,TE,408,,,,
+Josh Whyle,TE,409,,,,
+Sam Roush,TE,410,,,,
+Justin Watson,WR,411,,,,
+Davis Mills,QB,412,,,,
+Reggie Virgil,WR,413,,,,
+Reggie Gilliam,RB,414,,,,
+Gardner Minshew II,QB,415,,,,
+Jalen Reagor,WR,416,,,,
+Charlie Jones,WR,417,,,,
+British Brooks,RB,418,,,,
+Skyy Moore,WR,419,,,,
+Scotty Miller,WR,420,,,,
+Travis Homer,RB,422,,,,
+Carson Wentz,QB,423,,,,
+Gunner Olszewski,WR,425,,,,
+Tom Kennedy,WR,426,,,,
+D.J. Montgomery,WR,427,,,,
+Bailey Zappe,QB,428,,,,
+Baylor Cupp,TE,429,,,,
+Dillon Gabriel,QB,430,,,,
+Gavin Bartholomew,TE,431,,,,
+Mitchell Evans,TE,432,,,,
+Max Brosmer,QB,435,,,,
+Jam Miller,RB,436,,,,
+Taylen Green,QB,437,,,,
+Garrett Nussmeier,QB,439,,,,
+Equanimeous St. Brown,WR,440,,,,
+Austin Ekeler,RB,442,,,,
+Jamaal Williams,RB,443,,,,
+Zach Ertz,TE,444,,,,
+Greg Zuerlein,K,445,,,,
+D'Ernest Johnson,RB,447,,,,
+Clyde Edwards-Helaire,RB,448,,,,
+Matthew Wright,K,450,,,,
+Dorian Thompson-Robinson,QB,451,,,,
+Clayton Tune,QB,452,,,,
+SaRodorick Thompson Jr.,RB,453,,,,
+Joshua Karty,K,454,,,,
+Devin Leary,QB,455,,,,
+Thomas Odukoya,TE,457,,,,
+Jermaine Jackson,WR,458,,,,
+Drew Stevens,K,461,,,,
+Jeremy Ruckert,TE,467,,,,
+Davis Allen,TE,468,,,,
+Nate Adkins,TE,469,,,,
+Nate Boerkircher,TE,470,,,,
+Mason Tipton,WR,471,,,,
+Alec Ingold,RB,472,,,,
+Tyrell Shavers,WR,474,,,,
+Michael Burton,RB,476,,,,
+Luke Farrell,TE,477,,,,
+Max Bredeson,RB,478,,,,
+CJ Dippre,TE,479,,,,
+Eric Saubert,TE,482,,,,
+Andrew Beck,TE,483,,,,
+Chris Manhertz,TE,484,,,,
+Arian Smith,WR,485,,,,
+LaJohntay Wester,WR,486,,,,
+Britain Covey,WR,487,,,,
+Devin Duvernay,WR,488,,,,
+Josh Cameron,WR,489,,,,
+Jalen Brooks,WR,490,,,,
+Mason Kinsey,WR,491,,,,
+Cedrick Wilson Jr.,WR,493,,,,
+Brandon Allen,QB,494,,,,
+Cooper Rush,QB,495,,,,
+KhaDarel Hodge,WR,496,,,,
+Trayveon Williams,RB,497,,,,
+Ameer Abdullah,RB,498,,,,
+Easton Stick,QB,499,,,,
+David Moore,WR,500,,,,`;
+    const STD_ADP_CSV = `player_clean,position_clean,Sleeper,RTSports
+Jahmyr Gibbs,RB,2,1
+Bijan Robinson,RB,1,2
+Ja'Marr Chase,WR,6,3
+Christian McCaffrey,RB,4,5
+Jonathan Taylor,RB,3,7
+Puka Nacua,WR,9,4
+James Cook III,RB,5,10
+Jaxon Smith-Njigba,WR,10,6
+De'Von Achane,RB,8,12
+Ashton Jeanty,RB,11,9
+Amon-Ra St. Brown,WR,18,8
+Omarion Hampton,RB,12,15
+CeeDee Lamb,WR,15,14
+Derrick Henry,RB,7,23
+Saquon Barkley,RB,14,16
+Justin Jefferson,WR,20,11
+Chase Brown,RB,19,13
+Josh Allen,QB,16,18
+Kenneth Walker III,RB,24,17
+Drake London,WR,21,20
+Trey McBride,TE,23,19
+Kyren Williams,RB,13,31
+Jeremiyah Love,RB,17,28
+Brock Bowers,TE,29,22
+Josh Jacobs,RB,22,30
+George Pickens,WR,28,24
+Nico Collins,WR,26,26
+A.J. Brown,WR,34,21
+Chris Olave,WR,31,25
+Javonte Williams,RB,32,27
+Breece Hall,RB,27,32
+Malik Nabers,WR,30,29
+Lamar Jackson,QB,25,42
+Rashee Rice,WR,35,33
+Bucky Irving,RB,33,41
+Travis Etienne Jr.,RB,36,40
+Cam Skattebo,RB,42,35
+Quinshon Judkins,RB,45,36
+Tetairoa McMillan,WR,38,44
+Garrett Wilson,WR,39,43
+Tee Higgins,WR,37,48
+Zay Flowers,WR,52,34
+Luther Burden III,WR,41,45
+TreVeyon Henderson,RB,40,51
+Emeka Egbuka,WR,57,37
+DeVonta Smith,WR,55,39
+Bhayshul Tuten,RB,44,50
+Ladd McConkey,WR,48,46
+Colston Loveland,TE,47,47
+Jaylen Waddle,WR,43,53
+David Montgomery,RB,50,49
+DJ Moore,WR,62,38
+D'Andre Swift,RB,49,52
+Drake Maye,QB,51,57
+Davante Adams,WR,46,63
+Joe Burrow,QB,56,56
+Jameson Williams,WR,54,59
+Tyler Warren,TE,60,55
+Terry McLaurin,WR,58,58
+Jaylen Warren,RB,53,66
+Mike Evans,WR,63,62
+RJ Harvey,RB,59,67
+Jayden Daniels,QB,71,60
+Harold Fannin Jr.,TE,67,64
+Rhamondre Stevenson,RB,61,72
+Rome Odunze,WR,73,61
+Christian Watson,WR,69,68
+Rico Dowdle,RB,70,69
+Jadarian Price,RB,86,54
+Jalen Hurts,QB,76,65
+Carnell Tate,WR,64,80
+Tony Pollard,RB,68,77
+Tucker Kraft,TE,77,73
+Parker Washington,WR,81,70
+Kyle Monangai,RB,65,87
+Michael Wilson,WR,82,71
+Brian Thomas Jr.,WR,84,75
+Chuba Hubbard,RB,72,89
+Courtland Sutton,WR,78,83
+Jordyn Tyson,WR,66,96
+J.K. Dobbins,RB,75,88
+Kyle Pitts Sr.,TE,79,84
+Blake Corum,RB,74,94
+Marvin Harrison Jr.,WR,89,81
+DK Metcalf,WR,80,92
+Caleb Williams,QB,97,76
+Sam LaPorta,TE,85,91
+Justin Herbert,QB,94,85
+Trevor Lawrence,QB,102,78
+Chris Godwin Jr.,WR,95,86
+Dak Prescott,QB,107,79
+Jaxson Dart,QB,91,95
+Wan'Dale Robinson,WR,116,74
+Kenny Gainwell,RB,93,98
+Jakobi Meyers,WR,83,114
+Jordan Mason,RB,110,90
+Jacory Croskey-Merritt,RB,103,99
+Alec Pierce,WR,101,102
+Aaron Jones Sr.,RB,92,118
+Dalton Kincaid,TE,88,123
+Jordan Addison,WR,108,109
+Travis Kelce,TE,117,101
+George Kittle,TE,109,110
+Isaiah Likely,TE,127,93
+Patrick Mahomes II,QB,112,108
+Michael Pittman Jr.,WR,119,103
+Jake Ferguson,TE,105,117
+Mark Andrews,TE,104,119
+Tyler Allgeier,RB,96,134
+Josh Downs,WR,125,105
+Quentin Johnston,WR,123,107
+Brock Purdy,QB,118,112
+Woody Marks,RB,115,116
+Zach Charbonnet,RB,111,121
+Brian Robinson Jr.,RB,87,151
+Dallas Goedert,TE,100,138
+Bo Nix,QB,138,100
+Rachaad White,RB,142,97
+Matthew Stafford,QB,133,106
+Juwan Johnson,TE,113,127
+Tyrone Tracy Jr.,RB,122,120
+Stefon Diggs,WR,130,113
+Jayden Reed,WR,135,111
+Jonathon Brooks,RB,169,82
+Hunter Henry,TE,98,153
+Jared Goff,QB,155,104
+Romeo Doubs,WR,131,128
+Alvin Kamara,RB,136,124
+Brandon Aubrey,K,121,147
+Tyjae Spears,RB,140,129
+Xavier Worthy,WR,139,132
+Brenton Strange,TE,114,160
+Jonah Coleman,RB,132,142
+Oronde Gadsden II,TE,90,190
+Khalil Shakir,WR,137,146
+Houston Texans,DST,129,155
+KC Concepcion,WR,151,135
+Jordan Love,QB,146,141
+Los Angeles Rams,DST,124,164
+Jayden Higgins,WR,145,143
+Baker Mayfield,QB,168,122
+Deebo Samuel Sr.,WR,160,131
+Kenyon Sadiq,TE,120,175
+Jalen Coker,WR,153,144
+Dalton Schultz,TE,106,193
+Chris Rodriguez Jr.,RB,167,133
+Tyler Shough,QB,174,130
+T.J. Hockenson,TE,147,158
+Seattle Seahawks,DST,134,172
+Chig Okonkwo,TE,158,148
+Dylan Sampson,RB,149,159
+Malik Willis,QB,164,145
+Kyler Murray,QB,186,125
+Jauan Jennings,WR,141,173
+Keaton Mitchell,RB,176,139
+Denver Broncos,DST,148,170
+David Njoku,TE,152,166
+Isiah Pacheco,RB,180,140
+Tank Bigsby,RB,173,149
+James Conner,RB,99,225
+Rashid Shaheed,WR,198,126
+Cameron Dicker,K,150,174
+Philadelphia Eagles,DST,143,182
+Mike Washington Jr.,RB,161,169
+Matthew Golden,WR,195,136
+Braelon Allen,RB,156,179
+Emmett Johnson,RB,126,216
+Jason Myers,K,154,189
+Denzel Boston,WR,182,161
+Sam Darnold,QB,207,152
+C.J. Stroud,QB,203,157
+Jerry Jeudy,WR,196,165
+Omar Cooper Jr.,WR,178,187
+New England Patriots,DST,171,195
+Ka'imi Fairbairn,K,190,177
+Kayshon Boutte,WR,201,167
+Cam Little,K,183,186
+AJ Barner,TE,144,236
+Calvin Ridley,WR,226,154
+Minnesota Vikings,DST,185,199
+Sean Tucker,RB,187,198
+Kimani Vidal,RB,165,221
+Tyler Loop,K,177,209
+Ja'Kobi Lane,WR,206,180
+Jalen McMillan,WR,202,185
+Cade Otton,TE,175,218
+Harrison Mevis,K,184,210
+Terrance Ferguson,TE,166,232
+Jalen Nailor,WR,249,150
+Cam Ward,QB,240,162
+Gunnar Helm,TE,181,223
+Baltimore Ravens,DST,162,243
+Nicholas Singleton,RB,204,201
+Travis Hunter,WR,193,213
+Adonai Mitchell,WR,199,208
+De'Zhaun Stribling,WR,272,137
+Tyreek Hill,WR,172,237
+Daniel Jones,QB,248,163
+Ray Davis,RB,205,206
+Makai Lemon,WR,,115
+Colby Parkinson,TE,157,256
+Jacksonville Jaguars,DST,210,204
+Tank Dell,WR,232,183
+Tre' Harris,WR,223,192
+Kaytron Allen,RB,191,226
+Bryce Young,QB,250,168
+Jaydon Blue,RB,235,184
+Jake Bates,K,218,202
+Fernando Mendoza,QB,234,191
+Trey Benson,RB,128,313
+Andy Borregales,K,192,235
+Eli Stowers,TE,163,266
+Pittsburgh Steelers,DST,222,207
+Jacoby Brissett,QB,259,171
+Tre Tucker,WR,233,203
+Zachariah Branch,WR,231,205
+Demond Claiborne,RB,217,224
+Harrison Butker,K,188,254
+Chris Boswell,K,179,272
+Mason Taylor,TE,159,293
+Antonio Williams,WR,189,263
+MarShawn Lloyd,RB,,156
+Jaylen Wright,RB,214,239
+Eddy Pineiro,K,224,233
+Los Angeles Chargers,DST,243,215
+Detroit Lions,DST,194,269
+Malachi Fields,WR,269,196
+Theo Johnson,TE,170,
+Will Reichard,K,215,252
+Jake Tonges,TE,221,250
+Aaron Rodgers,QB,,176
+Isaac TeSlaa,WR,229,244
+Emanuel Wilson,RB,197,277
+Pat Bryant,WR,212,262
+Justice Hill,RB,,178
+Malik Washington,WR,,181
+Green Bay Packers,DST,254,227
+Tua Tagovailoa,QB,283,200
+Brandon Aiyuk,WR,219,264
+Geno Smith,QB,,188
+Wil Lutz,K,220,265
+Greg Dulcich,TE,,194
+Dontayvion Wicks,WR,,197
+New York Giants,DST,236,258
+Michael Penix Jr.,QB,279,217
+Joe Mixon,RB,200,
+Dallas Cowboys,DST,255,242
+Shedeur Sanders,QB,277,222
+Kaleb Johnson,RB,213,287
+Chase McLaughlin,K,252,248
+Germie Bernard,WR,244,260
+Devin Neal,RB,208,
+Cairo Santos,K,239,267
+Ryan Flournoy,WR,251,255
+Najee Harris,RB,209,304
+Kaelon Black,RB,,211
+Troy Franklin,WR,211,303
+Kirk Cousins,QB,,212
+George Holani,RB,,214
+Chimere Dike,WR,216,314
+J.J. McCarthy,QB,276,238
+Ty Johnson,RB,,219
+Pat Freiermuth,TE,,220
+Kansas City Chiefs,DST,228,291
+Kendre Miller,RB,225,
+Buffalo Bills,DST,274,249
+Cooper Kupp,WR,263,261
+Brashard Smith,RB,227,319
+Cyrus Allen,WR,,228
+Darnell Mooney,WR,245,280
+Christian Kirk,WR,268,257
+Deshaun Watson,QB,,229
+Austin Ekeler,RB,,230
+Elic Ayomanor,WR,230,
+Caleb Douglas,WR,,231
+Jordan James,RB,,234
+Keenan Allen,WR,261,271
+Audric Estime,RB,237,
+Jaylin Noel,WR,238,317
+Carson Beck,QB,,240
+Devin Singletary,RB,,241
+Jarquez Hunter,RB,241,
+Evan McPherson,K,264,274
+Marvin Mims Jr.,WR,242,
+Jake Elliott,K,280,259
+Chicago Bears,DST,260,279
+Jalen Tolbert,WR,,245
+Evan Engram,TE,,246
+Kyle Williams,WR,246,
+Ted Hurst III,WR,247,296
+Justin Fields,QB,,247
+Keon Coleman,WR,262,283
+Samaje Perine,RB,,251
+San Francisco 49ers,DST,266,282
+Devaughn Vele,WR,267,281
+Kareem Hunt,RB,,253
+Rashod Bateman,WR,258,292
+Tory Horton,WR,253,298
+Elijah Sarratt,WR,256,
+Chris Bell,WR,257,307
+Cleveland Browns,DST,290,268
+Jack Bech,WR,265,295
+New Orleans Saints,DST,285,275
+Tyler Bass,K,295,270
+Max Klare,TE,270,
+Michael Trigg,TE,271,
+Indianapolis Colts,DST,273,
+Mac Jones,QB,,273
+Atlanta Falcons,DST,275,
+Mike Gesicki,TE,,276
+Tampa Bay Buccaneers,DST,278,
+Trey Smack,K,,278
+Carolina Panthers,DST,281,
+Cincinnati Bengals,DST,282,
+Tennessee Titans,DST,291,288
+Matt Gay,K,284,
+Ja'Tavion Sanders,TE,,284
+Tutu Atwell,WR,,285
+Riley Patterson,K,286,
+Ollie Gordon II,RB,,286
+Charlie Smyth,K,287,
+Ty Simpson,QB,288,
+Nick Folk,K,289,
+Alexander Mattison,RB,,289
+LeQuint Allen Jr.,RB,,290
+Arizona Cardinals,DST,292,
+Las Vegas Raiders,DST,293,
+New York Jets,DST,294,
+Michael Mayer,TE,,294
+Miami Dolphins,DST,296,
+Jerome Ford,RB,,297
+Hollywood Brown,WR,,299
+Jahan Dotson,WR,,300
+Darren Waller,TE,,301
+Andrei Iosivas,WR,,302
+Adam Randall,RB,,305
+Xavier Legette,WR,,306
+Chris Brooks,RB,,308
+DJ Giddens,RB,,309
+Brenen Thompson,WR,,310
+Emari Demercado,RB,,311
+Darius Slayton,WR,,312
+Seth McGowan,RB,,315
+Skyler Bell,WR,,316
+Isaiah Davis,RB,,318
+Joshua Palmer,WR,,320
+Malik Davis,RB,,321`;
+
+    function buildAdpMap(csvText, sourceNames) {
+      const rows = parseCSV(csvText);
+      const map = {};
+      rows.forEach(row => {
+        const pos = (row.position_clean || '').toUpperCase();
+        const key = normalizeName(row.player_clean) + '|' + pos;
+        const entry = {};
+        sourceNames.forEach(src => { entry[src] = numOrUndef(row[src.toLowerCase()]); });
+        map[key] = entry;
+        registerPlayer(row.player_clean, pos);
+      });
+      return map;
+    }
+
+    state.adpPpr = buildAdpMap(PPR_ADP_CSV, ['ESPN', 'Sleeper', 'CBS', 'RTSports', 'Fantrax']);
+    state.adpStd = buildAdpMap(STD_ADP_CSV, ['Sleeper', 'RTSports']);
+  } catch (e) {
+    console.warn('ADP data failed to load; ADP rows will show —', e);
+    state.adpPpr = {};
+    state.adpStd = {};
+  }
+  if (state.lookupSelected) renderLookupCard();
 })();
 </script>
 </body>
