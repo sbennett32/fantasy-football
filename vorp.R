@@ -13,6 +13,41 @@ library(lme4)
 library(readr)
 library(DT)
 
+# ══════════════════════════════════════════════════════════════════
+# TODO — three changes needed for correct PPR VORP in a configurable
+# league (notes only, nothing below this block has been changed):
+#
+# 1. SCORING (currently STANDARD, 0 pts/reception):
+#    Every PTS_<Analyst> below is `PPG*17` off the raw per-analyst 4pt
+#    files (e.g. line ~167 `PTS_Andy = PPG*17`, and the Jason/Mike
+#    equivalents) — that's standard scoring. To get PPR:
+#      (a) swap these blocks to read udk-projections-blended.csv
+#          (in the dashboard repo root) and use its `proj_ppr` column
+#          instead of recomputing from the raw per-analyst files, or
+#      (b) keep reading the raw per-analyst files but add receptions:
+#          PPR points = standard points + REC. The raw per-analyst
+#          files already have a REC column for RB/WR/TE, so this is
+#          exact, not an estimate — just add `+ REC` next to each
+#          `PPG*17` (QBs stay PPG*17 unchanged; REC is 0 for them).
+#    Option (a) is simpler and matches what the dashboard's Rankings
+#    tab now does; option (b) keeps this script self-contained.
+#
+# 2. LEAGUE SIZE: hardcoded `n = 8` below (~line 98). Expose it as a
+#    parameter instead. RBs_Drafted/WRs_Drafted/etc. all derive from
+#    n and will follow automatically — EXCEPT ADP_File_Name (~line
+#    302), which builds "UDK_<n>tm_ADP.csv" and needs either a
+#    matching file for the new n or a repoint to the FantasyPros ADP
+#    already in the dashboard repo (ppr-adps.csv / standard-adps.csv).
+#
+# 3. ROSTER SLOTS: p_RB=2.5, p_WR=3.5, p_QB=1, p_TE=1 (~lines 101-118)
+#    are the friend's 8-team WR-heavy build. For a 2RB/2WR/1TE/1QB/
+#    1-2 FLEX league these starter counts need to change — they set
+#    replacement level, which VORP is measured against, so getting
+#    them right matters as much as the scoring fix.
+#
+# Item 1 is the one that was previously blocked (no real reception
+# data) and is now unblocked by udk-projections-blended.csv.
+# ══════════════════════════════════════════════════════════════════
 
 # Read in the file
 UDK <- read_csv("/data/shared/idiosyncranic/udk_rankings/2026_UDK_top200.csv")
