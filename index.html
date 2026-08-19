@@ -506,24 +506,18 @@ td.bold { color: var(--text); font-weight: 600; }
         <table id="proj-table">
           <thead>
             <tr>
-              <th data-col="rank" class="sorted"># <span class="sort-arrow">↑</span></th>
-              <th data-col="name">PLAYER</th>
-              <th data-col="team">TEAM</th>
-              <th data-col="opp">OPP</th>
-              <th data-col="proj" class="r">PROJ <span class="sort-arrow"></span></th>
-              <th data-col="floor" class="r">FLOOR</th>
-              <th data-col="ceil" class="r">CEIL</th>
+              <th>#</th>
+              <th data-col="name">PLAYER <span class="sort-arrow"></span></th>
+              <th data-col="team">TEAM <span class="sort-arrow"></span></th>
+              <th data-col="proj" class="r sorted">PROJ <span class="sort-arrow">↓</span></th>
               <th data-col="vorp10ppr" class="r" title="VORP in Joe's 10-team full-PPR league">VORP 10PPR <span class="sort-arrow"></span></th>
               <th data-col="vorp8std" class="r" title="VORP in Sam's 8-team standard league">VORP 8STD <span class="sort-arrow"></span></th>
-              <th data-col="conf" class="r">CONFIDENCE</th>
-              <th data-col="notes">NOTES</th>
             </tr>
           </thead>
           <tbody id="proj-body">
-            <tr><td colspan="11"><div class="empty-state">
+            <tr><td colspan="6"><div class="empty-state">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M9 17H5a2 2 0 00-2 2v0a2 2 0 002 2h14a2 2 0 002-2v0a2 2 0 00-2-2h-4M9 17V9M15 17V5M9 9H5M15 5h4"/></svg>
-              Upload a projections CSV to get started
-              <p>Use the import bar above or see the Import Guide tab for the expected format.</p>
+              Loading projections…
             </div></td></tr>
           </tbody>
         </table>
@@ -772,11 +766,6 @@ function valueFor(player, sourceName, format) {
   return format === 'ppr' ? pprVal(player, sourceName) : stdVal(player, sourceName);
 }
 
-// Projections-table fields (proj/floor/ceil) are ESPN-only and PPR-based.
-function projFieldVal(player, field, format) {
-  return convertFromPPR(num(player[field]), (player.pos || '').toUpperCase(), player, 'ESPN', format);
-}
-
 function setFormat(format) {
   state.format = format;
   document.querySelectorAll('#format-toggle .scoring-btn').forEach(b => {
@@ -797,7 +786,7 @@ function setFormat(format) {
    SUMMARY CARDS
 ══════════════════════════════════════════════ */
 function updateSummary() {
-  const d = state.projections;
+  const d = Object.values(state.projBlended); // full ~312-player set, not the old ESPN-only array
   if (!d.length) return;
 
   // Replacement level baselines: QB13, RB25, WR37
@@ -805,7 +794,7 @@ function updateSummary() {
   d.forEach(r => {
     const p = (r.pos||'').toUpperCase();
     if (!byPos[p]) byPos[p] = [];
-    const v = projFieldVal(r, 'proj', state.format).value;
+    const v = projFor(r, { scoring: state.format });
     if (v != null) byPos[p].push(v);
   });
   const rl = (pos, n) => {
@@ -813,8 +802,8 @@ function updateSummary() {
     return arr[n-1] !== undefined ? arr[n-1].toFixed(1) : '—';
   };
   const rlName = (pos, n) => {
-    const arr = [...d].filter(r=>(r.pos||'').toUpperCase()===pos)
-      .sort((a,b)=>(projFieldVal(b,'proj',state.format).value||0)-(projFieldVal(a,'proj',state.format).value||0));
+    const arr = d.filter(r=>(r.pos||'').toUpperCase()===pos)
+      .sort((a,b)=>(projFor(b,{scoring:state.format})||0)-(projFor(a,{scoring:state.format})||0));
     return arr[n-1] ? arr[n-1].name.split(' ').pop() : '';
   };
 
@@ -846,14 +835,18 @@ function posMatches(rowPos, filterPos) {
 }
 
 function renderProjections() {
-  const { projections, projSort, projPos } = state;
+  const { projSort, projPos } = state;
+  // Full ~312-player set from udk-projections-blended.csv — NOT the old
+  // ~60-player hardcoded ESPN_PROJECTIONS array (state.projections is
+  // still used elsewhere, e.g. the Rankings tab's separate ESPN column).
+  const projections = Object.values(state.projBlended);
   let rows = projections.filter(r => posMatches((r.pos || '').toUpperCase(), projPos));
 
   rows.sort((a, b) => {
     let av, bv;
-    if (['proj','floor','ceil'].includes(projSort.col)) {
-      av = projFieldVal(a, projSort.col, state.format).value;
-      bv = projFieldVal(b, projSort.col, state.format).value;
+    if (projSort.col === 'proj') {
+      av = projFor(a, { scoring: state.format });
+      bv = projFor(b, { scoring: state.format });
       if (av == null) av = -Infinity;
       if (bv == null) bv = -Infinity;
     } else if (projSort.col === 'vorp10ppr' || projSort.col === 'vorp8std') {
@@ -875,37 +868,23 @@ function renderProjections() {
 
   const tbody = document.getElementById('proj-body');
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="11"><div class="empty-state">No players found for this position filter.</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state">No players found for this position filter.</div></td></tr>`;
     return;
   }
 
-  const ptsCell = entry => {
-    if (entry.value === null || entry.value === undefined) return '—';
-    const txt = fmt(entry.value);
-    return entry.estimated
-      ? `<span class="pts-estimated" title="estimated — no reception data">~${txt}</span>`
-      : txt;
-  };
+  const projCell = v => v == null ? '—' : fmt(v);
   const vorpCell = v => v == null ? '—' : v.toFixed(1);
 
   tbody.innerHTML = rows.map((r, i) => {
-    const conf = num(r.conf, 0);
     const pos = (r.pos || '').toUpperCase();
-    const pv = projFieldVal(r, 'proj', state.format);
-    const fv = projFieldVal(r, 'floor', state.format);
-    const cv = projFieldVal(r, 'ceil', state.format);
+    const proj = projFor(r, { scoring: state.format });
     return `<tr>
       <td class="bold">${i + 1}</td>
       <td><span class="pos pos-${pos}">${pos}</span><span class="bold">${r.name || '—'}</span></td>
       <td>${r.team || '—'}</td>
-      <td style="color:var(--text3)">${r.opp || '—'}</td>
-      <td class="r bold">${ptsCell(pv)}</td>
-      <td class="r" style="color:var(--text3)">${ptsCell(fv)}</td>
-      <td class="r" style="color:var(--text2)">${ptsCell(cv)}</td>
+      <td class="r bold">${projCell(proj)}</td>
       <td class="r">${vorpCell(vorpFor(r, 'joe'))}</td>
       <td class="r">${vorpCell(vorpFor(r, 'sam'))}</td>
-      <td class="r">${r.conf ? `<div class="conf-cell"><span class="conf-pct">${conf}%</span><div class="conf-track"><div class="conf-fill" style="width:${Math.min(conf,100)}%"></div></div></div>` : '—'}</td>
-      <td style="color:var(--text3);font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.notes || ''}</td>
     </tr>`;
   }).join('');
 }
@@ -1707,7 +1686,7 @@ document.querySelectorAll('.tab').forEach(tab => {
 
   const banner = document.createElement('div');
   banner.style.cssText = 'background:#0f1520;border:1px solid #1e2a3a;border-radius:6px;padding:8px 14px;margin-bottom:18px;font-size:10px;color:#4a6080;letter-spacing:0.06em;display:flex;align-items:center;gap:8px;flex-wrap:wrap;';
-  banner.innerHTML = '<span style="color:#2a6099;font-size:13px;">◈</span> DEFAULT DATA: ESPN Fantasy Football 2026 PPR Rankings · Mike Clay (May 2026) · Points estimated by positional rank tier; STD converted from PPR via per-position reception estimates (~ marks estimated values)';
+  banner.innerHTML = '<span style="color:#2a6099;font-size:13px;">◈</span> Table below: UDK Blended Projections (50% Andy / 25% Jason / 25% Mike, udk-projections-blended.csv) — proj_ppr/proj_std are exact from real reception counts, no estimation. Replacement-level cards above use the same set.';
   document.querySelector('#page-projections .summary-row').before(banner);
 })();
 
@@ -3310,13 +3289,15 @@ Oscar Delp,NO,TE,11.4,5.4,6.0,1`;
     console.warn('UDK blended projections failed to load; UDK column will show —', e);
     state.projBlended = {};
   }
-  // The Rankings table's UDK column, the Projections table's two VORP
-  // columns, and the Lookup card all depend on state.projBlended.
-  // computeAllVorp() only needs to run again if projBlended reloads.
+  // The Rankings table's UDK column, the Projections table itself (rows
+  // + both VORP columns + summary cards), and the Lookup card all depend
+  // on state.projBlended. computeAllVorp() only needs to run again if
+  // projBlended reloads.
   computeAllVorp();
   buildRankingsCombined();
   renderRankings();
   renderProjections();
+  updateSummary();
   if (state.lookupSelected) renderLookupCard();
 })();
 </script>
