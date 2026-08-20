@@ -568,7 +568,7 @@ td.bold { color: var(--text); font-weight: 600; }
           </div>
         </div>
       </div>
-      <div style="font-size:10px;color:var(--text3);letter-spacing:0.04em;margin:-8px 0 14px;">VORP depends on each league's size, scoring, and bench assumptions (see state.leagues) — one signal, not gospel.</div>
+      <div style="font-size:10px;color:var(--text3);letter-spacing:0.04em;margin:-8px 0 14px;">VORP depends on each league's size and scoring, and on Sam's roster-derived replacement ranks (see VORP_DRAFTED_FRACTION) — one signal, not gospel.</div>
 
       <div class="table-wrap">
         <table id="proj-table">
@@ -761,17 +761,14 @@ const state = {
   // Fixed per-person league configs for VORP. NOT user-edited in normal
   // use — each person always sees their own number regardless of the
   // dashboard's STD/PPR display toggle (VORP uses cfg.scoring, not
-  // state.format). Sam's roster (bench counts, FLEX=1) is an assumption
-  // — if his real league differs, this is the only block to edit.
+  // state.format). Only n (teams) and scoring differ between the two —
+  // the positional draft-count fractions (VORP_DRAFTED_FRACTION, right
+  // below) are Sam's exact roster math and are the SAME for both leagues.
+  // flexEligible is unrelated to VORP — it's only used by the FLEX
+  // position filter (Projections/Rankings/Draft Mode).
   leagues: [
-    { id: 'joe', label: '10 PPR', teams: 10, scoring: 'ppr',
-      starters: { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1 },
-      flexEligible: ['RB', 'WR'],
-      bench: { QB: 1, RB: 2, WR: 3, TE: 1 } },
-    { id: 'sam', label: '8 STD', teams: 8, scoring: 'std',
-      starters: { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1 },
-      flexEligible: ['RB', 'WR'],
-      bench: { QB: 1, RB: 2, WR: 3, TE: 1 } },
+    { id: 'joe', label: '10 PPR', teams: 10, scoring: 'ppr', flexEligible: ['RB', 'WR'] },
+    { id: 'sam', label: '8 STD',  teams: 8,  scoring: 'std', flexEligible: ['RB', 'WR'] },
   ],
   vorp: { joe: null, sam: null }, // computeVorpForLeague() output per league — {vorpByKey, replacementRankByPos}
 
@@ -1157,13 +1154,28 @@ function buildRankingsCombined() {
 }
 
 /* ══════════════════════════════════════════════
-   VORP — two independent, fixed-scoring leagues
+   VORP — replicates Sam's R script exactly
    Each league config (state.leagues) carries its OWN scoring basis;
    VORP always uses that, never state.format (the dashboard's display
    toggle only changes what OTHER numbers look like, not these).
    Source data is state.projBlended — a player missing from it simply
    has no VORP in either league (never fabricated).
+
+   Positional draft counts are Sam's exact roster fractions, NOT an
+   even flex-split approximation — do not change these:
+     RB = n * (2.5 + 2.75) = n * 5.25
+     QB = n * (1   + 1)    = n * 2
+     WR = n * (3.5 + 2.75) = n * 6.25
+     TE = n * (1   + 0.5)  = n * 1.5
+   The cutoff rank is FLOOR(n * fraction) — round down only here, the
+   fractions themselves are never rounded. Replacement level is the
+   projection of the player at that cutoff rank (1-indexed, sorted by
+   the league's own scoring, descending), clamped to the last player if
+   a position has fewer players than the cutoff. VORP = player's
+   projection minus his position's replacement level.
 ══════════════════════════════════════════════ */
+const VORP_DRAFTED_FRACTION = { QB: 2, RB: 5.25, WR: 6.25, TE: 1.5 };
+
 function projFor(player, cfg) {
   const v = cfg.scoring === 'ppr' ? player.proj_ppr : player.proj_std;
   return typeof v === 'number' ? v : null;
@@ -1180,21 +1192,13 @@ function computeVorpForLeague(cfg) {
     (byPos[p.pos] = byPos[p.pos] || []).push(p);
   });
 
-  const flexSpots = cfg.teams * (cfg.starters.FLEX || 0);
-  // FLEX spots are split EVENLY across flex-eligible positions — an
-  // approximation (real drafts don't split flex 50/50 by position),
-  // but a simple, defensible one absent real roster-construction data.
-  const flexShare = pos => cfg.flexEligible.includes(pos) ? flexSpots / cfg.flexEligible.length : 0;
-
   positions.forEach(pos => {
-    const startersDrafted = cfg.teams * (cfg.starters[pos] || 0);
-    const benchDrafted = cfg.teams * (cfg.bench[pos] || 0);
-    const replacementRank = Math.round(startersDrafted + flexShare(pos) + benchDrafted);
-    replacementRankByPos[pos] = replacementRank;
+    const cutoff = Math.floor(cfg.teams * VORP_DRAFTED_FRACTION[pos]);
+    replacementRankByPos[pos] = cutoff;
 
     const list = (byPos[pos] || []).slice().sort((a, b) => projFor(b, cfg) - projFor(a, cfg));
     if (!list.length) return;
-    const idx = Math.min(Math.max(replacementRank - 1, 0), list.length - 1);
+    const idx = Math.min(Math.max(cutoff - 1, 0), list.length - 1);
     const replacementPoints = projFor(list[idx], cfg);
 
     list.forEach(p => {
@@ -1630,7 +1634,7 @@ function renderLookupCard() {
       <div class="stat-label" style="margin-bottom:10px;">SCOUTING / GUIDE${guide ? '' : ' — no data for this player'}</div>
       ${guideRows}
       <div style="font-size:10px;color:var(--text3);letter-spacing:0.02em;margin-top:10px;">${replLine}</div>
-      <div style="font-size:10px;color:var(--text3);letter-spacing:0.02em;margin-top:4px;">VORP depends on league size, scoring, and bench assumptions (state.leagues) — one signal, not gospel.</div>
+      <div style="font-size:10px;color:var(--text3);letter-spacing:0.02em;margin-top:4px;">VORP depends on league size, scoring, and Sam's roster-derived replacement ranks — one signal, not gospel.</div>
     </div>
   `;
 }
