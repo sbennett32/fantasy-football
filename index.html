@@ -73,7 +73,6 @@ body {
   color: var(--text2); font-size: 10px; letter-spacing: 0.1em;
   padding: 4px 12px; border-radius: 20px;
 }
-#last-updated { font-size: 10px; color: var(--text3); letter-spacing: 0.06em; }
 
 /* ─── Import Bar ────────────────────────────────────────────── */
 .import-bar {
@@ -503,8 +502,9 @@ td.bold { color: var(--text); font-weight: 600; }
 #draft-table tbody td { padding: 7px 10px; border-bottom: 1px solid var(--border); text-align: right; white-space: nowrap; }
 #draft-table tbody td.l { text-align: left; }
 #draft-table tbody tr:hover td { background: var(--surface2); }
-.draft-row.drafted td { opacity: 0.38; text-decoration: line-through; }
-.draft-row.drafted .draft-checkbox { text-decoration: none; opacity: 1; }
+#draft-table tbody tr.draft-row.drafted td { background: #2a0f0f; color: #8a5a5a; }
+#draft-table tbody tr.draft-row.drafted:hover td { background: #331414; }
+.draft-row.drafted .draft-name { text-decoration: line-through; }
 .draft-checkbox {
   width: 20px; height: 20px; cursor: pointer; accent-color: var(--purple);
 }
@@ -527,7 +527,6 @@ td.bold { color: var(--text); font-weight: 600; }
         <button class="scoring-btn" data-format="std" onclick="setFormat('std')">STD</button>
         <button class="scoring-btn active" data-format="ppr" onclick="setFormat('ppr')">PPR</button>
       </div>
-      <span id="last-updated">no data loaded</span>
       <span class="week-pill" id="week-pill">WEEK —</span>
       <button class="draft-mode-btn" id="draft-mode-open-btn" onclick="openDraftMode()">⚡ DRAFT MODE</button>
     </div>
@@ -696,7 +695,6 @@ td.bold { color: var(--text); font-weight: 600; }
       </div>
       <div class="draft-header-right">
         <span class="chip" id="draft-undrafted-count">— undrafted</span>
-        <button class="filter-btn" id="draft-hide-drafted-btn" title="When ON, drafted players are removed from the list entirely instead of shown struck through at the bottom">HIDE DRAFTED</button>
         <button class="draft-reset-btn" id="draft-reset-btn">RESET DRAFT</button>
         <button class="draft-exit-btn" id="draft-exit-btn" onclick="closeDraftMode()">EXIT</button>
       </div>
@@ -783,7 +781,6 @@ const state = {
   draftLeague: 'joe', // 'joe' | 'sam'
   draftPos: 'ALL',
   draftSort: { col: 'adpAvg', dir: 'asc' },
-  draftHideDrafted: false,
   draftedKeys: new Set(), // loaded from localStorage on openDraftMode()
   draftMaster: [],
 };
@@ -1810,8 +1807,9 @@ function toggleDrafted(key) {
 
 function renderDraftTable() {
   const tbody = document.getElementById('draft-body');
+  // Drafted players always stay in the list — never hidden — with their
+  // whole row turned dark red so it's obvious at a glance they're gone.
   let rows = state.draftMaster.filter(r => posMatches(r.pos, state.draftPos));
-  if (state.draftHideDrafted) rows = rows.filter(r => !state.draftedKeys.has(r.key));
 
   const { col, dir } = state.draftSort;
   const sortVal = r => {
@@ -1830,11 +1828,9 @@ function renderDraftTable() {
   const isStringCol = col === 'name' || col === 'pos' || col === 'team' || col === 'flag';
 
   rows.sort((a, b) => {
-    // Drafted players always sink to the bottom, regardless of column —
-    // the board should always read true-best-available at the top.
-    const aDrafted = state.draftedKeys.has(a.key), bDrafted = state.draftedKeys.has(b.key);
-    if (aDrafted !== bDrafted) return aDrafted ? 1 : -1;
-
+    // Drafted players stay in their natural sorted slot (e.g. their ADP
+    // rank position) rather than moving — the row itself (dark red,
+    // name struck through) is the "gone" signal.
     let av = sortVal(a), bv = sortVal(b);
     if (!isStringCol) {
       // Missing numeric values (tier/mkt score/CL/ADP/VORP/value) sort
@@ -1867,7 +1863,7 @@ function renderDraftTable() {
     const valueHtml = r.value == null ? '—' : `${r.value > 0 ? '+' : ''}${r.value}`;
     return `<tr class="draft-row${drafted ? ' drafted' : ''}">
       <td class="l"><input type="checkbox" class="draft-checkbox" ${drafted ? 'checked' : ''} onchange="toggleDrafted('${r.key.replace(/'/g, "\\'")}')"></td>
-      <td class="l bold">${r.name}</td>
+      <td class="l bold draft-name">${r.name}</td>
       <td class="l"><span class="pos pos-${r.pos}">${r.pos}</span></td>
       <td class="l">${r.team || '—'}</td>
       <td>${r.adpAvg != null ? `${r.adpAvg.toFixed(1)} <span style="color:var(--text3);font-size:9px;">(${r.adpAvgCount})</span>` : '—'}</td>
@@ -1914,16 +1910,6 @@ document.getElementById('draft-pos-filters').addEventListener('click', e => {
   document.querySelectorAll('#draft-pos-filters .filter-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   state.draftPos = btn.dataset.pos;
-  renderDraftTable();
-});
-
-// Static label, toggled via .active (like the position filter buttons)
-// instead of swapping text — a text-swapping button ("HIDE DRAFTED" ->
-// "SHOW DRAFTED") reads ambiguously as either the current state or the
-// next action; a fixed label + on/off highlight doesn't.
-document.getElementById('draft-hide-drafted-btn').addEventListener('click', () => {
-  state.draftHideDrafted = !state.draftHideDrafted;
-  document.getElementById('draft-hide-drafted-btn').classList.toggle('active', state.draftHideDrafted);
   renderDraftTable();
 });
 
@@ -2085,7 +2071,6 @@ document.querySelectorAll('.tab').forEach(tab => {
   renderProjections();
   updateSummary();
 
-  document.getElementById('last-updated').textContent = 'ESPN · Mike Clay · May 2026';
   document.getElementById('week-pill').textContent    = '2026 SEASON';
   document.getElementById('s-last-load').textContent  = 'May 2026';
   document.getElementById('s-last-source').textContent = 'ESPN · Mike Clay';
