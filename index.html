@@ -729,6 +729,7 @@ td.bold { color: var(--text); font-weight: 600; }
             <th data-col="proj">PROJ PTS <span class="sort-arrow"></span></th>
             <th data-col="vorp">VORP <span class="sort-arrow"></span></th>
             <th data-col="value">VALUE <span class="sort-arrow"></span></th>
+            <th data-col="sos" title="3-week strength of schedule for this player's team+position. 1 = easiest, 32 = hardest.">3WKSOS <span class="sort-arrow"></span></th>
           </tr>
         </thead>
         <tbody id="draft-body"></tbody>
@@ -754,6 +755,7 @@ const state = {
   lookupSelected: null,
   guideData: {}, // normalizeName(player)+'|'+pos -> {market_score, guide_adp, flag, confidence_level}
   tiers: {}, // normalizeName(player)+'|'+pos -> tier number (from tiers.csv, ~123 players; undefined elsewhere)
+  sos: {}, // TEAM|POS -> 3-week strength-of-schedule rank 1 (easiest) - 32 (hardest), from sos3wk.csv. Team+position, NOT player name.
   adpPpr: {},    // normalizeName(player)+'|'+pos -> {ESPN, Sleeper, CBS, RTSports, Fantrax} (values may be undefined)
   adpStd: {},    // normalizeName(player)+'|'+pos -> {Sleeper, RTSports} (values may be undefined)
   allPlayers: {}, // normalizeName(player)+'|'+pos -> {name, pos, team} — union of every loaded dataset, search index
@@ -1727,6 +1729,9 @@ function buildDraftMaster() {
       adpAvg: adpAvgResult.avg,
       adpAvgCount: adpAvgResult.count,
       adpEspn: adpRow ? numOrUndef(adpRow.ESPN) : undefined,
+      // Team+position value, NOT a player value — joined by team/pos,
+      // never by name, so every player at that spot shares one number.
+      sos: p.team ? state.sos[String(p.team).toUpperCase() + '|' + p.pos] : undefined,
       raw: p, // for projFor()/vorpFor(), which key off the league toggle
     };
   });
@@ -1828,6 +1833,7 @@ function renderDraftTable() {
       case 'adpAvg': return r.adpAvg;
       case 'value': return r.value;
       case 'adpEspn': return r.adpEspn;
+      case 'sos': return r.sos;
       default: return null;
     }
   };
@@ -1874,6 +1880,12 @@ function renderDraftTable() {
       ? `${r.flag.toUpperCase()}${r.cl != null ? ` (${r.cl})` : ''}`
       : '—';
     const valueHtml = r.value == null ? '—' : `${r.value > 0 ? '+' : ''}${r.value}`;
+    // 3WKSOS color scale (schedule-matchup scannability, unlike FLAG/
+    // VALUE above): green = easy (<=10), red = hard (>=23), neutral between.
+    const sosHtml = r.sos == null ? '—'
+      : r.sos <= 10 ? `<span style="color:var(--green)">${r.sos}</span>`
+      : r.sos >= 23 ? `<span style="color:var(--red)">${r.sos}</span>`
+      : r.sos;
     return `<tr class="draft-row${drafted ? ' drafted' : ''}">
       <td class="l"><input type="checkbox" class="draft-checkbox" ${drafted ? 'checked' : ''} onchange="toggleDrafted('${r.key.replace(/'/g, "\\'")}')"></td>
       <td class="l bold draft-name">${r.name}</td>
@@ -1887,6 +1899,7 @@ function renderDraftTable() {
       <td>${cell(proj, 1)}</td>
       <td>${cell(vorp, 1)}</td>
       <td>${valueHtml}</td>
+      <td>${sosHtml}</td>
     </tr>`;
   }).join('');
 
@@ -1904,11 +1917,11 @@ document.querySelectorAll('#draft-table thead th[data-col]').forEach(th => {
   th.addEventListener('click', () => {
     const col = th.dataset.col;
     const isStringCol = col === 'name' || col === 'pos' || col === 'team' || col === 'flag';
-    // ADP AVG and TIER are both "lower is better" (ADP 1 = drafted
-    // first, Tier 1 = best tier) so they default ascending; every other
-    // numeric column (points, VORP, value, market score) defaults
-    // descending — best/highest first.
-    const lowIsBetter = col === 'adpAvg' || col === 'tier';
+    // ADP AVG, TIER, and 3WKSOS are all "lower is better" (ADP 1 =
+    // drafted first, Tier 1 = best tier, SOS 1 = easiest schedule) so
+    // they default ascending; every other numeric column (points, VORP,
+    // value, market score) defaults descending — best/highest first.
+    const lowIsBetter = col === 'adpAvg' || col === 'tier' || col === 'sos';
     const dir = state.draftSort.col === col
       ? (state.draftSort.dir === 'asc' ? 'desc' : 'asc')
       : (isStringCol || lowIsBetter ? 'asc' : 'desc');
@@ -2442,6 +2455,160 @@ Mark Andrews,TE,16,110-123`;
   } catch (e) {
     console.warn('Tier data failed to load; TIER column will show —', e);
     state.tiers = {};
+  }
+})();
+
+/* ══════════════════════════════════════════════
+   3-WEEK STRENGTH OF SCHEDULE  (sos3wk.csv)
+   A team+position value (NOT a player value) — every player at that
+   position on that team shares the same 3WKSOS. Joined by
+   TEAM+'|'+POSITION, never by player name. 1 = easiest schedule over
+   the first 3 weeks, 32 = hardest. Only QB/RB/WR/TE are covered; any
+   other position (K/DST) simply has no match and shows "—" — never 0.
+══════════════════════════════════════════════ */
+(function loadSOSDefaults() {
+  try {
+    const SOS_CSV = `team,position,sos_3wk
+NYG,QB,1
+PHI,QB,2
+DAL,QB,3
+BAL,QB,4
+MIN,QB,5
+TEN,QB,6
+CIN,QB,7
+WAS,QB,8
+NYJ,QB,9
+SEA,QB,10
+NO,QB,11
+SF,QB,12
+NE,QB,13
+CLE,QB,14
+PIT,QB,15
+KC,QB,16
+LAR,QB,17
+CAR,QB,18
+HOU,QB,19
+ATL,QB,20
+DEN,QB,21
+MIA,QB,22
+GB,QB,23
+DET,QB,24
+IND,QB,25
+LAC,QB,26
+LV,QB,27
+ARI,QB,28
+BUF,QB,29
+JAX,QB,30
+TB,QB,31
+CHI,QB,32
+TEN,RB,1
+LAC,RB,2
+DET,RB,3
+DAL,RB,4
+HOU,RB,5
+SEA,RB,6
+SF,RB,7
+TB,RB,8
+GB,RB,9
+PHI,RB,10
+PIT,RB,11
+NYG,RB,12
+CHI,RB,13
+BAL,RB,14
+WAS,RB,15
+LAR,RB,16
+LV,RB,17
+CAR,RB,18
+ATL,RB,19
+MIN,RB,20
+MIA,RB,21
+NO,RB,22
+CLE,RB,23
+NYJ,RB,24
+KC,RB,25
+CIN,RB,26
+IND,RB,27
+ARI,RB,28
+JAX,RB,29
+BUF,RB,30
+DEN,RB,31
+NE,RB,32
+NYG,WR,1
+PHI,WR,2
+NO,WR,3
+DAL,WR,4
+BAL,WR,5
+NYJ,WR,6
+MIN,WR,7
+CAR,WR,8
+SEA,WR,9
+ATL,WR,10
+SF,WR,11
+WAS,WR,12
+CIN,WR,13
+NE,WR,14
+MIA,WR,15
+KC,WR,16
+DEN,WR,17
+LAR,WR,18
+TEN,WR,19
+BUF,WR,20
+IND,WR,21
+LAC,WR,22
+CLE,WR,23
+PIT,WR,24
+HOU,WR,25
+GB,WR,26
+ARI,WR,27
+DET,WR,28
+LV,WR,29
+JAX,WR,30
+CHI,WR,31
+TB,WR,32
+SEA,TE,1
+NE,TE,2
+SF,TE,3
+KC,TE,4
+HOU,TE,5
+TB,TE,6
+PIT,TE,7
+CIN,TE,8
+CLE,TE,9
+PHI,TE,10
+ATL,TE,11
+MIN,TE,12
+ARI,TE,13
+LAR,TE,14
+JAX,TE,15
+BAL,TE,16
+NYJ,TE,17
+LV,TE,18
+NYG,TE,19
+DAL,TE,20
+DEN,TE,21
+BUF,TE,22
+MIA,TE,23
+NO,TE,24
+LAC,TE,25
+CAR,TE,26
+WAS,TE,27
+GB,TE,28
+DET,TE,29
+IND,TE,30
+TEN,TE,31
+CHI,TE,32`;
+
+    const rows = parseCSV(SOS_CSV);
+    const sos = {};
+    rows.forEach(row => {
+      const key = (row.team || '').toUpperCase() + '|' + (row.position || '').toUpperCase();
+      const val = numOrUndef(row.sos_3wk);
+      if (val != null) sos[key] = val;
+    });
+    state.sos = sos;
+  } catch (e) {
+    console.warn('SOS data failed to load; 3WKSOS column will show —', e);
+    state.sos = {};
   }
 })();
 
