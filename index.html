@@ -695,6 +695,7 @@ td.bold { color: var(--text); font-weight: 600; }
       </div>
       <div class="draft-header-right">
         <span class="chip" id="draft-undrafted-count">— undrafted</span>
+        <button class="filter-btn" id="draft-best-available-btn" title="When ON, drafted players sink to the bottom and undrafted players float to the top, regardless of the sorted column">BEST AVAILABLE</button>
         <button class="draft-reset-btn" id="draft-reset-btn">RESET DRAFT</button>
         <button class="draft-exit-btn" id="draft-exit-btn" onclick="closeDraftMode()">EXIT</button>
       </div>
@@ -778,6 +779,7 @@ const state = {
   draftLeague: 'joe', // 'joe' | 'sam'
   draftPos: 'ALL',
   draftSort: { col: 'adpAvg', dir: 'asc' },
+  draftBestAvailable: false, // when true, drafted sink to bottom / undrafted float to top, overriding the sorted column's own order for that split
   draftedKeys: new Set(), // loaded from localStorage on openDraftMode()
   draftMaster: [],
 };
@@ -1832,9 +1834,16 @@ function renderDraftTable() {
   const isStringCol = col === 'name' || col === 'pos' || col === 'team' || col === 'flag';
 
   rows.sort((a, b) => {
-    // Drafted players stay in their natural sorted slot (e.g. their ADP
-    // rank position) rather than moving — the row itself (dark red,
-    // name struck through) is the "gone" signal.
+    // Default: drafted players stay in their natural sorted slot (e.g.
+    // their ADP rank position) — the row itself (dark red, name struck
+    // through) is the "gone" signal. With BEST AVAILABLE on, drafted
+    // players sink below every undrafted player regardless of column,
+    // so the top of the board is always true best-available.
+    if (state.draftBestAvailable) {
+      const aDrafted = state.draftedKeys.has(a.key), bDrafted = state.draftedKeys.has(b.key);
+      if (aDrafted !== bDrafted) return aDrafted ? 1 : -1;
+    }
+
     let av = sortVal(a), bv = sortVal(b);
     if (!isStringCol) {
       // Missing numeric values (tier/mkt score/CL/ADP/VORP/value) sort
@@ -1914,6 +1923,12 @@ document.getElementById('draft-pos-filters').addEventListener('click', e => {
   document.querySelectorAll('#draft-pos-filters .filter-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   state.draftPos = btn.dataset.pos;
+  renderDraftTable();
+});
+
+document.getElementById('draft-best-available-btn').addEventListener('click', () => {
+  state.draftBestAvailable = !state.draftBestAvailable;
+  document.getElementById('draft-best-available-btn').classList.toggle('active', state.draftBestAvailable);
   renderDraftTable();
 });
 
