@@ -736,6 +736,7 @@ td.bold { color: var(--text); font-weight: 600; }
       </div>
       <div class="draft-header-right">
         <span class="chip" id="draft-undrafted-count">— undrafted</span>
+        <span class="chip" id="draft-gone-tally" title="Players marked drafted, league-wide, by position">—</span>
         <button class="filter-btn" id="draft-best-available-btn" title="When ON, drafted players sink to the bottom and undrafted players float to the top, regardless of the sorted column">BEST AVAILABLE</button>
         <button class="draft-reset-btn" id="draft-reset-btn">RESET DRAFT</button>
         <button class="draft-exit-btn" id="draft-exit-btn" onclick="closeDraftMode()">EXIT</button>
@@ -1963,6 +1964,32 @@ function renderDraftTable() {
 
   const undraftedCount = state.draftMaster.filter(r => !state.draftedKeys.has(r.key)).length;
   document.getElementById('draft-undrafted-count').textContent = `${undraftedCount} undrafted`;
+
+  renderDraftGoneTally();
+}
+
+// Positional scarcity tally: how many players at each position are
+// currently marked drafted, league-wide (not the user's own roster).
+// Recomputed on every renderDraftTable() call, so it stays correct
+// through toggles, RESET, and — since openDraftMode() loads persisted
+// drafted keys before its first render — a mid-draft page reload too.
+function renderDraftGoneTally() {
+  const el = document.getElementById('draft-gone-tally');
+  if (!el) return;
+
+  // Position lookup comes from the SAME records the board table uses,
+  // so a tallied position can never disagree with a row's POS column.
+  const posByKey = {};
+  state.draftMaster.forEach(r => { posByKey[r.key] = r.pos; });
+
+  const counts = { QB: 0, RB: 0, WR: 0, TE: 0 };
+  state.draftedKeys.forEach(key => {
+    const pos = posByKey[key];
+    if (pos && Object.prototype.hasOwnProperty.call(counts, pos)) counts[pos]++;
+  });
+
+  const total = counts.QB + counts.RB + counts.WR + counts.TE;
+  el.textContent = `GONE ${total} · QB ${counts.QB} · RB ${counts.RB} · WR ${counts.WR} · TE ${counts.TE}`;
 }
 
 document.getElementById('draft-league-toggle').addEventListener('click', e => {
