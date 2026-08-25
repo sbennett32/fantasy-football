@@ -508,6 +508,46 @@ td.bold { color: var(--text); font-weight: 600; }
 .draft-checkbox {
   width: 20px; height: 20px; cursor: pointer; accent-color: var(--purple);
 }
+
+/* ─── Compare panel ──────────────────────────────────────────── */
+.compare-panel {
+  display: none;
+  position: fixed; inset: 0; z-index: 700;
+  background: rgba(0,0,0,0.65);
+  align-items: flex-start; justify-content: center;
+  overflow-y: auto; padding: 40px 20px;
+}
+.compare-panel.open { display: flex; }
+.compare-panel-inner {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; padding: 20px 24px 26px; width: min(960px, 100%);
+}
+.compare-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.compare-title { font-size: 13px; font-weight: 700; letter-spacing: 0.1em; color: var(--purple); }
+.compare-close-btn {
+  background: transparent; border: 1px solid var(--border2); color: var(--text2);
+  font-size: 13px; width: 28px; height: 28px; border-radius: 6px; cursor: pointer;
+}
+.compare-close-btn:hover { color: var(--text); border-color: var(--purple); }
+.compare-chips { margin: 12px 0; min-height: 20px; }
+.compare-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--surface2); border: 1px solid var(--border2); border-radius: 20px;
+  padding: 4px 6px 4px 12px; font-size: 11px; margin: 0 8px 8px 0;
+}
+.compare-chip button {
+  background: transparent; border: none; color: var(--text3);
+  cursor: pointer; font-size: 13px; padding: 0 4px; line-height: 1;
+}
+.compare-chip button:hover { color: var(--red); }
+.compare-hint { font-size: 11px; color: var(--text3); }
+.compare-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+.compare-table th, .compare-table td { padding: 8px 14px; border-bottom: 1px solid var(--border); text-align: center; }
+.compare-table th.stat-label { text-align: left; color: var(--text3); font-size: 10px; letter-spacing: 0.06em; white-space: nowrap; }
+.compare-table th.player-col { color: var(--text); font-size: 12px; font-weight: 700; }
+.compare-table .drafted-note { display: block; color: var(--red); font-size: 9px; font-weight: 400; letter-spacing: 0.06em; margin-top: 2px; }
+.compare-best  { background: rgba(74,222,128,0.12); color: var(--green); font-weight: 700; border-radius: 4px; }
+.compare-worst { background: rgba(248,113,113,0.12); color: var(--red); border-radius: 4px; }
 </style>
 </head>
 <body>
@@ -692,6 +732,7 @@ td.bold { color: var(--text); font-weight: 600; }
           <button class="scoring-btn active" data-league="joe">10 PPR (JOE)</button>
           <button class="scoring-btn" data-league="sam">8 STD (SAM)</button>
         </div>
+        <button class="filter-btn" id="compare-open-btn" onclick="openComparePanel()">⇄ COMPARE</button>
       </div>
       <div class="draft-header-right">
         <span class="chip" id="draft-undrafted-count">— undrafted</span>
@@ -736,6 +777,22 @@ td.bold { color: var(--text); font-weight: 600; }
       </table>
     </div>
   </section>
+
+  <!-- ── Compare panel (modal over Draft Mode) ── -->
+  <div class="compare-panel" id="compare-panel">
+    <div class="compare-panel-inner">
+      <div class="compare-header">
+        <span class="compare-title">COMPARE PLAYERS</span>
+        <button class="compare-close-btn" id="compare-close-btn" onclick="closeComparePanel()">✕</button>
+      </div>
+      <div class="lookup-search-wrap" style="max-width:100%;">
+        <input type="text" id="compare-search-input" class="lookup-input" placeholder="Search a player to add (2–4)…" autocomplete="off">
+        <div class="lookup-dropdown" id="compare-search-dropdown"></div>
+      </div>
+      <div id="compare-selected-chips" class="compare-chips"></div>
+      <div id="compare-table-wrap"></div>
+    </div>
+  </div>
 
 <script>
 /* ══════════════════════════════════════════════
@@ -784,6 +841,7 @@ const state = {
   draftBestAvailable: false, // when true, drafted sink to bottom / undrafted float to top, overriding the sorted column's own order for that split
   draftedKeys: new Set(), // loaded from localStorage on openDraftMode()
   draftMaster: [],
+  compareKeys: [], // ordered list of player keys selected in the Compare panel, 0-4
 };
 
 /* ══════════════════════════════════════════════
@@ -1951,6 +2009,199 @@ document.getElementById('draft-reset-btn').addEventListener('click', () => {
   saveDraftedKeys();
   renderDraftTable();
 });
+
+/* ══════════════════════════════════════════════
+   COMPARE PANEL
+   2-4 players side by side, best/worst highlighted per stat row. Reads
+   from state.draftMaster (already loaded for Draft Mode) — no new data.
+
+   Proj Pts and VORP are always PPR / Joe's 10-team league here,
+   regardless of the draft-mode league toggle — the row is explicitly
+   labeled "(PPR)" / "(10 PPR)" so that's never ambiguous, and Value is
+   computed against that same Joe/10PPR VORP so the two rows agree with
+   each other no matter what state.draftLeague is set to elsewhere.
+══════════════════════════════════════════════ */
+
+// direction per stat: 'high' = bigger number is better, 'low' = smaller is better
+const COMPARE_BETTER = {
+  tier: 'low',
+  marketScore: 'high',
+  projPpr: 'high',
+  vorp10: 'high',
+  adpAvg: 'low',
+  adpEspn: 'low',
+  value: 'high',
+  sos: 'low',
+};
+
+function openComparePanel() {
+  document.getElementById('compare-panel').classList.add('open');
+  renderComparePanel();
+}
+
+function closeComparePanel() {
+  document.getElementById('compare-panel').classList.remove('open');
+}
+
+function addComparePlayer(key) {
+  if (state.compareKeys.length >= 4 || state.compareKeys.includes(key)) return;
+  state.compareKeys.push(key);
+  renderComparePanel();
+}
+
+function removeComparePlayer(key) {
+  state.compareKeys = state.compareKeys.filter(k => k !== key);
+  renderComparePanel();
+}
+
+function compareMatches(query) {
+  const q = normalizeName(query);
+  if (!q || q.length < 2) return [];
+  return state.draftMaster
+    .filter(r => !state.compareKeys.includes(r.key) && normalizeName(r.name).includes(q))
+    .slice(0, 8);
+}
+
+function renderCompareDropdown(matches) {
+  const dd = document.getElementById('compare-search-dropdown');
+  if (!matches.length) {
+    dd.innerHTML = `<div class="lookup-empty">No players found</div>`;
+    dd.classList.add('open');
+    return;
+  }
+  dd.innerHTML = matches.map((r, i) => `
+    <div class="lookup-item${i === 0 ? ' active' : ''}" data-idx="${i}">
+      <span class="pos pos-${r.pos}">${r.pos}</span>
+      <span>${r.name}</span>
+      <span class="lookup-item-team">${r.team || ''}</span>
+    </div>`).join('');
+  dd.classList.add('open');
+}
+
+// Best/worst among the PRESENT values only; ties share the color;
+// fewer than 2 present values, or all present values equal -> no color.
+function computeCompareHighlights(entries, direction) {
+  const highlights = {};
+  if (entries.length < 2) return highlights;
+  const values = entries.map(e => e.value);
+  const bestVal = direction === 'high' ? Math.max(...values) : Math.min(...values);
+  const worstVal = direction === 'high' ? Math.min(...values) : Math.max(...values);
+  if (bestVal === worstVal) return highlights; // all present values equal
+  entries.forEach(e => {
+    if (e.value === bestVal) highlights[e.key] = 'best';
+    else if (e.value === worstVal) highlights[e.key] = 'worst';
+  });
+  return highlights;
+}
+
+function renderComparePanel() {
+  const chipsWrap = document.getElementById('compare-selected-chips');
+  const tableWrap = document.getElementById('compare-table-wrap');
+  const players = state.compareKeys.map(k => state.draftMaster.find(r => r.key === k)).filter(Boolean);
+
+  chipsWrap.innerHTML = players.length
+    ? players.map(p => `<span class="compare-chip">${p.name} (${p.pos})<button onclick="removeComparePlayer('${p.key.replace(/'/g, "\\'")}')" title="Remove">✕</button></span>`).join('')
+      + `<div class="compare-hint">${players.length}/4 selected${players.length >= 4 ? ' — max reached' : ''}</div>`
+    : `<div class="compare-hint">Search above to add players (2–4).</div>`;
+
+  const searchInput = document.getElementById('compare-search-input');
+  searchInput.disabled = players.length >= 4;
+  searchInput.placeholder = players.length >= 4 ? 'Max 4 players — remove one to add another' : 'Search a player to add (2–4)…';
+
+  if (players.length < 2) {
+    tableWrap.innerHTML = `<div class="compare-hint" style="margin-top:14px;">Add at least 2 players to compare.</div>`;
+    return;
+  }
+
+  // Value here is always anchored to Joe's 10PPR VORP (see header note),
+  // computed fresh across the whole master list — independent of
+  // state.draftLeague so it can't disagree with the VORP row above it.
+  const master = state.draftMaster;
+  const withAdp = master.filter(r => r.adpAvg != null).slice().sort((a, b) => a.adpAvg - b.adpAvg);
+  const adpRankMap = {};
+  withAdp.forEach((r, i) => { adpRankMap[r.key] = i + 1; });
+  const withVorpJoe = master.filter(r => vorpFor(r.raw, 'joe') != null).slice().sort((a, b) => vorpFor(b.raw, 'joe') - vorpFor(a.raw, 'joe'));
+  const vorpRankMap = {};
+  withVorpJoe.forEach((r, i) => { vorpRankMap[r.key] = i + 1; });
+  const compareValueFor = p => {
+    const ar = adpRankMap[p.key], vr = vorpRankMap[p.key];
+    return (ar != null && vr != null) ? (ar - vr) : null;
+  };
+
+  const STAT_ROWS = [
+    { key: 'tier',       label: 'TIER',            get: p => p.tier, dec: 0 },
+    { key: 'marketScore',label: 'MARKET SCORE',    get: p => p.marketScore, dec: 1 },
+    { key: 'projPpr',    label: 'PROJ PTS (PPR)',  get: p => (typeof p.raw.proj_ppr === 'number' ? p.raw.proj_ppr : null), dec: 1 },
+    { key: 'vorp10',     label: 'VORP (10 PPR)',   get: p => vorpFor(p.raw, 'joe'), dec: 1 },
+    { key: 'adpAvg',     label: 'ADP CONSENSUS',   get: p => p.adpAvg, dec: 1 },
+    { key: 'adpEspn',    label: 'ADP ESPN',        get: p => p.adpEspn, dec: 0 },
+    { key: 'value',      label: 'VALUE',           get: p => compareValueFor(p), dec: 0 },
+    { key: 'sos',        label: '3WKSOS',          get: p => p.sos, dec: 0 },
+  ];
+
+  const headerRow = `<tr><th class="stat-label"></th>${players.map(p => `
+    <th class="player-col">${p.name}${state.draftedKeys.has(p.key) ? '<span class="drafted-note">DRAFTED</span>' : ''}</th>`).join('')}</tr>`;
+
+  const teamRow = `<tr><th class="stat-label">TEAM</th>${players.map(p => `<td>${p.team || '—'}</td>`).join('')}</tr>`;
+  const posRow = `<tr><th class="stat-label">POSITION</th>${players.map(p => `<td><span class="pos pos-${p.pos}">${p.pos}</span></td>`).join('')}</tr>`;
+
+  const statRowsHtml = STAT_ROWS.map(row => {
+    const entries = players.map(p => ({ key: p.key, value: row.get(p) })).filter(e => typeof e.value === 'number');
+    const highlights = computeCompareHighlights(entries, COMPARE_BETTER[row.key]);
+    const cells = players.map(p => {
+      const v = row.get(p);
+      if (typeof v !== 'number') return `<td>—</td>`;
+      const cls = highlights[p.key] === 'best' ? 'compare-best' : highlights[p.key] === 'worst' ? 'compare-worst' : '';
+      return `<td class="${cls}">${v.toFixed(row.dec)}</td>`;
+    }).join('');
+    return `<tr><th class="stat-label">${row.label}</th>${cells}</tr>`;
+  }).join('');
+
+  // Flags are shown, not ranked — each is its own established color
+  // (target/avoid/dart), never compared against the other players' flags.
+  const FLAG_COLOR = { target: 'var(--green)', avoid: 'var(--red)', dart: 'var(--amber)' };
+  const flagRow = `<tr><th class="stat-label">FLAG</th>${players.map(p => {
+    if (!p.flag) return `<td>—</td>`;
+    const color = FLAG_COLOR[p.flag] || 'var(--text)';
+    return `<td><span style="color:${color};font-weight:700;">${p.flag.toUpperCase()}${p.cl != null ? ` (${p.cl})` : ''}</span></td>`;
+  }).join('')}</tr>`;
+
+  tableWrap.innerHTML = `<table class="compare-table">
+    <thead>${headerRow}</thead>
+    <tbody>${teamRow}${posRow}${statRowsHtml}${flagRow}</tbody>
+  </table>`;
+}
+
+(function initCompareSearch() {
+  const input = document.getElementById('compare-search-input');
+  const dropdown = document.getElementById('compare-search-dropdown');
+  let currentMatches = [];
+
+  input.addEventListener('input', () => {
+    currentMatches = compareMatches(input.value);
+    renderCompareDropdown(currentMatches);
+  });
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && currentMatches[0]) {
+      addComparePlayer(currentMatches[0].key);
+      input.value = '';
+      dropdown.classList.remove('open');
+    }
+  });
+  dropdown.addEventListener('click', e => {
+    const item = e.target.closest('.lookup-item');
+    if (!item) return;
+    const row = currentMatches[Number(item.dataset.idx)];
+    if (row) {
+      addComparePlayer(row.key);
+      input.value = '';
+      dropdown.classList.remove('open');
+    }
+  });
+  document.addEventListener('click', e => {
+    if (!e.target.closest('#compare-panel .lookup-search-wrap')) dropdown.classList.remove('open');
+  });
+})();
 
 /* ══════════════════════════════════════════════
    TAB ROUTING
