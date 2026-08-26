@@ -608,7 +608,7 @@ td.bold { color: var(--text); font-weight: 600; }
           </div>
         </div>
       </div>
-      <div style="font-size:10px;color:var(--text3);letter-spacing:0.04em;margin:-8px 0 14px;">VORP depends on each league's size and scoring, and on Sam's roster-derived replacement ranks (see VORP_DRAFTED_FRACTION) — one signal, not gospel.</div>
+      <div style="font-size:10px;color:var(--text3);letter-spacing:0.04em;margin:-8px 0 14px;">VORP depends on each league's size and scoring, and on Sam's roster-derived replacement ranks (see state.leagues) — one signal, not gospel.</div>
 
       <div class="table-wrap">
         <table id="proj-table">
@@ -729,8 +729,10 @@ td.bold { color: var(--text); font-weight: 600; }
       <div class="draft-header-left">
         <span class="draft-title">⚡ DRAFT MODE</span>
         <div class="scoring-toggle" id="draft-league-toggle">
-          <button class="scoring-btn active" data-league="joe">10 PPR (JOE)</button>
-          <button class="scoring-btn" data-league="sam">8 STD (SAM)</button>
+          <button class="scoring-btn" data-league="std8">8 STD</button>
+          <button class="scoring-btn active" data-league="ppr10_1f">10 PPR 1F</button>
+          <button class="scoring-btn" data-league="ppr10_2f">10 PPR 2F</button>
+          <button class="scoring-btn" data-league="ppr12">12 PPR</button>
         </div>
         <button class="filter-btn" id="compare-open-btn" onclick="openComparePanel()">⇄ COMPARE</button>
       </div>
@@ -769,7 +771,7 @@ td.bold { color: var(--text); font-weight: 600; }
             <th data-col="marketScore">MKT SCORE <span class="sort-arrow"></span></th>
             <th class="l" data-col="flag">FLAG <span class="sort-arrow"></span></th>
             <th data-col="proj">PROJ PTS <span class="sort-arrow"></span></th>
-            <th data-col="vorp">VORP <span class="sort-arrow"></span></th>
+            <th data-col="vorp" id="draft-vorp-header">VORP (10 PPR 1F) <span class="sort-arrow"></span></th>
             <th data-col="value">VALUE <span class="sort-arrow"></span></th>
             <th data-col="sos" title="3-week strength of schedule for this player's team+position. 1 = easiest, 32 = hardest.">3WKSOS <span class="sort-arrow"></span></th>
           </tr>
@@ -791,6 +793,13 @@ td.bold { color: var(--text); font-weight: 600; }
         <div class="lookup-dropdown" id="compare-search-dropdown"></div>
       </div>
       <div id="compare-selected-chips" class="compare-chips"></div>
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+        <span style="font-size:10px;color:var(--text3);letter-spacing:0.06em;">VORP ROW:</span>
+        <div class="scoring-toggle" id="compare-league-toggle">
+          <button class="scoring-btn active" data-league="ppr10_1f">10 PPR</button>
+          <button class="scoring-btn" data-league="ppr12">12 PPR</button>
+        </div>
+      </div>
       <div id="compare-table-wrap"></div>
     </div>
   </div>
@@ -819,24 +828,37 @@ const state = {
   allPlayers: {}, // normalizeName(player)+'|'+pos -> {name, pos, team} — union of every loaded dataset, search index
   projBlended: {}, // normalizeName(player)+'|'+pos -> {name, team, pos, proj_ppr, proj_std, rec, sources_used} — EXACT, no estimation
 
-  // Fixed per-person league configs for VORP. NOT user-edited in normal
-  // use — each person always sees their own number regardless of the
-  // dashboard's STD/PPR display toggle (VORP uses cfg.scoring, not
-  // state.format). Only n (teams) and scoring differ between the two —
-  // the positional draft-count fractions (VORP_DRAFTED_FRACTION, right
-  // below) are Sam's exact roster math and are the SAME for both leagues.
-  // flexEligible is unrelated to VORP — it's only used by the FLEX
-  // position filter (Projections/Rankings/Draft Mode).
-  leagues: [
-    { id: 'joe', label: '10 PPR', teams: 10, scoring: 'ppr', flexEligible: ['RB', 'WR'] },
-    { id: 'sam', label: '8 STD',  teams: 8,  scoring: 'std', flexEligible: ['RB', 'WR'] },
-  ],
-  vorp: { joe: null, sam: null }, // computeVorpForLeague() output per league — {vorpByKey, replacementRankByPos}
+  // Four fixed league configs for VORP, keyed by id (NOT user-edited in
+  // normal use). VORP always uses a config's OWN scoring — never
+  // state.format, the dashboard's display toggle. Exact R-script
+  // formula: drafted(pos) = teams * (starters[pos] + bench[pos]);
+  // replacement = projection at FLOOR(drafted) rank, sorted by that
+  // config's own scoring descending; VORP = proj - replacement.
+  //
+  // The fractional RB/WR starters encode the flex split: 2.5/3.5 = one
+  // flex spot split across RB/WR (Sam's original approach — the SAME
+  // split std8/ppr10_1f/ppr12 all use). ppr10_2f adds a SECOND flex
+  // spot with a 60/40 WR/RB split: +0.4 RB / +0.6 WR -> RB 2.9 / WR 4.1.
+  // Bench totals 7 per team (2.75+2.75+1+0.5) for ALL four configs —
+  // do not change the bench values. Only teams, scoring, and the RB/WR
+  // starters differ between configs.
+  leagues: {
+    std8:     { label: '8 STD',     teams: 8,  scoring: 'std',
+                starters: { QB: 1, RB: 2.5, WR: 3.5, TE: 1 }, bench: { QB: 1, RB: 2.75, WR: 2.75, TE: 0.5 } },
+    ppr10_1f: { label: '10 PPR 1F', teams: 10, scoring: 'ppr',
+                starters: { QB: 1, RB: 2.5, WR: 3.5, TE: 1 }, bench: { QB: 1, RB: 2.75, WR: 2.75, TE: 0.5 } },
+    ppr10_2f: { label: '10 PPR 2F', teams: 10, scoring: 'ppr',
+                starters: { QB: 1, RB: 2.9, WR: 4.1, TE: 1 }, bench: { QB: 1, RB: 2.75, WR: 2.75, TE: 0.5 } },
+    ppr12:    { label: '12 PPR',    teams: 12, scoring: 'ppr',
+                starters: { QB: 1, RB: 2.5, WR: 3.5, TE: 1 }, bench: { QB: 1, RB: 2.75, WR: 2.75, TE: 0.5 } },
+  },
+  vorp: {}, // computeAllVorp() fills one entry per state.leagues key — {vorpByKey, replacementRankByPos}
 
   // Draft Mode — entirely independent of state.format (the dashboard's
-  // display toggle). draftLeague picks which of state.leagues drives
-  // scoring/VORP/value inside draft mode only.
-  draftLeague: 'joe', // 'joe' | 'sam'
+  // display toggle). boardLeague picks which of state.leagues drives
+  // the board's VORP column, Proj Pts, and Value — draft mode only.
+  boardLeague: 'ppr10_1f',
+  compareLeague: 'ppr10_1f', // Compare panel's own 10PPR/12PPR toggle — independent of boardLeague
   draftPos: 'ALL',
   draftSort: { col: 'adpAvg', dir: 'asc' },
   draftBestAvailable: false, // when true, drafted sink to bottom / undrafted float to top, overriding the sorted column's own order for that split
@@ -1016,11 +1038,13 @@ const posAvatarBg = { QB:'#2d1a3a', RB:'#1a2e1a', WR:'#1a2535', TE:'#2e2a1a', K:
 const posAvatarFg = { QB:'#c084fc', RB:'#4ade80', WR:'#60a5fa', TE:'#fbbf24', K:'#f87171', DST:'#a78bfa' };
 
 // Position filter now accepts 'ALL', a single position, or 'FLEX' (any
-// position in state.leagues[0].flexEligible — one place to change if
-// TE-flex is ever added).
+// position in FLEX_ELIGIBLE_POSITIONS — one place to change if TE-flex
+// is ever added). Flex eligibility is a positional concept, not tied
+// to any one league config.
+const FLEX_ELIGIBLE_POSITIONS = ['RB', 'WR'];
 function posMatches(rowPos, filterPos) {
   if (filterPos === 'ALL') return true;
-  if (filterPos === 'FLEX') return state.leagues[0].flexEligible.includes(rowPos);
+  if (filterPos === 'FLEX') return FLEX_ELIGIBLE_POSITIONS.includes(rowPos);
   return rowPos === filterPos;
 }
 
@@ -1040,7 +1064,7 @@ function renderProjections() {
       if (av == null) av = -Infinity;
       if (bv == null) bv = -Infinity;
     } else if (projSort.col === 'vorp10ppr' || projSort.col === 'vorp8std') {
-      const leagueId = projSort.col === 'vorp10ppr' ? 'joe' : 'sam';
+      const leagueId = projSort.col === 'vorp10ppr' ? 'ppr10_1f' : 'std8';
       av = vorpFor(a, leagueId);
       bv = vorpFor(b, leagueId);
       if (av == null) av = -Infinity;
@@ -1073,8 +1097,8 @@ function renderProjections() {
       <td><span class="pos pos-${pos}">${pos}</span><span class="bold">${r.name || '—'}</span></td>
       <td>${r.team || '—'}</td>
       <td class="r bold">${projCell(proj)}</td>
-      <td class="r">${vorpCell(vorpFor(r, 'joe'))}</td>
-      <td class="r">${vorpCell(vorpFor(r, 'sam'))}</td>
+      <td class="r">${vorpCell(vorpFor(r, 'ppr10_1f'))}</td>
+      <td class="r">${vorpCell(vorpFor(r, 'std8'))}</td>
     </tr>`;
   }).join('');
 }
@@ -1217,28 +1241,21 @@ function buildRankingsCombined() {
 }
 
 /* ══════════════════════════════════════════════
-   VORP — replicates Sam's R script exactly
-   Each league config (state.leagues) carries its OWN scoring basis;
-   VORP always uses that, never state.format (the dashboard's display
-   toggle only changes what OTHER numbers look like, not these).
-   Source data is state.projBlended — a player missing from it simply
-   has no VORP in either league (never fabricated).
+   VORP — replicates Sam's R script exactly, across FOUR league configs
+   Each league config (state.leagues[id]) carries its OWN scoring basis
+   and roster shape; VORP always uses that, never state.format (the
+   dashboard's display toggle only changes what OTHER numbers look
+   like, not these). Source data is state.projBlended — a player
+   missing from it simply has no VORP in any league (never fabricated).
 
-   Positional draft counts are Sam's exact roster fractions, NOT an
-   even flex-split approximation — do not change these:
-     RB = n * (2.5 + 2.75) = n * 5.25
-     QB = n * (1   + 1)    = n * 2
-     WR = n * (3.5 + 2.75) = n * 6.25
-     TE = n * (1   + 0.5)  = n * 1.5
-   The cutoff rank is FLOOR(n * fraction) — round down only here, the
-   fractions themselves are never rounded. Replacement level is the
-   projection of the player at that cutoff rank (1-indexed, sorted by
-   the league's own scoring, descending), clamped to the last player if
-   a position has fewer players than the cutoff. VORP = player's
-   projection minus his position's replacement level.
+   drafted(pos) = teams * (starters[pos] + bench[pos]) — NOT rounded.
+   The cutoff rank is FLOOR(drafted) — round down only at that final
+   step. Replacement level is the projection of the player at that
+   cutoff rank (1-indexed, sorted by the league's own scoring,
+   descending), clamped to the last player if a position has fewer
+   players than the cutoff. VORP = player's projection minus his
+   position's replacement level.
 ══════════════════════════════════════════════ */
-const VORP_DRAFTED_FRACTION = { QB: 2, RB: 5.25, WR: 6.25, TE: 1.5 };
-
 function projFor(player, cfg) {
   const v = cfg.scoring === 'ppr' ? player.proj_ppr : player.proj_std;
   return typeof v === 'number' ? v : null;
@@ -1256,7 +1273,7 @@ function computeVorpForLeague(cfg) {
   });
 
   positions.forEach(pos => {
-    const cutoff = Math.floor(cfg.teams * VORP_DRAFTED_FRACTION[pos]);
+    const cutoff = Math.floor(cfg.teams * (cfg.starters[pos] + cfg.bench[pos]));
     replacementRankByPos[pos] = cutoff;
 
     const list = (byPos[pos] || []).slice().sort((a, b) => projFor(b, cfg) - projFor(a, cfg));
@@ -1273,10 +1290,10 @@ function computeVorpForLeague(cfg) {
 }
 
 function computeAllVorp() {
-  state.vorp = {
-    joe: computeVorpForLeague(state.leagues[0]),
-    sam: computeVorpForLeague(state.leagues[1]),
-  };
+  state.vorp = {};
+  Object.keys(state.leagues).forEach(id => {
+    state.vorp[id] = computeVorpForLeague(state.leagues[id]);
+  });
 }
 
 function vorpFor(player, leagueId) {
@@ -1656,13 +1673,13 @@ function renderLookupCard() {
   // VORP: two independent numbers, one per fixed league config — never
   // driven by the STD/PPR display toggle (each league has its own
   // scoring baked into computeVorpForLeague).
-  const vorpJoe = vorpFor(r, 'joe');
-  const vorpSam = vorpFor(r, 'sam');
+  const vorpJoe = vorpFor(r, 'ppr10_1f');
+  const vorpSam = vorpFor(r, 'std8');
   const replRanksText = vorpResult => {
     if (!vorpResult) return '—';
     return ['RB', 'WR', 'TE', 'QB'].map(pos => `${pos}${vorpResult.replacementRankByPos[pos] ?? '—'}`).join(' ');
   };
-  const replLine = `repl 10PPR: ${replRanksText(state.vorp.joe)} · 8STD: ${replRanksText(state.vorp.sam)}`;
+  const replLine = `repl 10PPR: ${replRanksText(state.vorp.ppr10_1f)} · 8STD: ${replRanksText(state.vorp.std8)}`;
 
   const guideRows = [
     guideRow('ADP · CONSENSUS', consensusHtml),
@@ -1730,8 +1747,9 @@ function renderLookupCard() {
    Full-screen, dense master board for live drafting. Entirely separate
    from the normal tab tables and from the main dashboard's STD/PPR
    toggle (state.format) — draft mode has its own league toggle
-   (state.draftLeague) that controls scoring, VORP, and the VORP-vs-ADP
-   VALUE calc together, as a set.
+   (state.boardLeague, one of the four state.leagues keys) that
+   controls scoring, VORP, and the VORP-vs-ADP VALUE calc together, as
+   a set.
 
    PERSISTENCE NOTE: the spec asked for the Claude Artifact
    `window.storage` API. This page is a real static site (deployed via
@@ -1797,11 +1815,22 @@ function buildDraftMaster() {
 }
 
 function draftProjVal(row) {
-  const cfg = state.leagues.find(l => l.id === state.draftLeague);
-  return projFor(row.raw, cfg);
+  return projFor(row.raw, state.leagues[state.boardLeague]);
 }
 function draftVorpVal(row) {
-  return vorpFor(row.raw, state.draftLeague);
+  return vorpFor(row.raw, state.boardLeague);
+}
+
+// Keeps the VORP column header in sync with the active board league,
+// e.g. "VORP (10 PPR 2F)" — preserves whatever sort-arrow/sorted state
+// is currently showing on that header.
+function updateDraftVorpHeader() {
+  const th = document.getElementById('draft-vorp-header');
+  if (!th) return;
+  const arrowText = th.querySelector('.sort-arrow') ? th.querySelector('.sort-arrow').textContent : '';
+  const wasSorted = th.classList.contains('sorted');
+  th.innerHTML = `VORP (${state.leagues[state.boardLeague].label}) <span class="sort-arrow">${arrowText}</span>`;
+  th.classList.toggle('sorted', wasSorted);
 }
 
 // VALUE = (where the market drafts him) minus (where his value says he
@@ -1811,8 +1840,8 @@ function draftVorpVal(row) {
 // across the WHOLE player pool (not per-position) — ADP is an overall
 // draft-order concept and VORP is designed to be cross-position
 // comparable, so ranking either within position would misrepresent both.
-// Depends on state.draftLeague via draftVorpVal — call again whenever
-// the league toggle flips.
+// Depends on state.boardLeague via draftVorpVal — call again whenever
+// the league selector changes.
 function computeDraftValueRanks(master) {
   const withAdp = master.filter(r => r.adpAvg != null).slice().sort((a, b) => a.adpAvg - b.adpAvg);
   const adpRank = {};
@@ -1834,6 +1863,7 @@ function openDraftMode() {
   state.draftedKeys = loadDraftedKeys();
   state.draftMaster = computeDraftValueRanks(buildDraftMaster());
   document.getElementById('page-draft').classList.add('open');
+  updateDraftVorpHeader();
   renderDraftTable();
 }
 
@@ -1841,11 +1871,12 @@ function closeDraftMode() {
   document.getElementById('page-draft').classList.remove('open');
 }
 
-function setDraftLeague(leagueId) {
-  state.draftLeague = leagueId;
+function setBoardLeague(leagueId) {
+  state.boardLeague = leagueId;
   document.querySelectorAll('#draft-league-toggle .scoring-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.league === leagueId);
   });
+  updateDraftVorpHeader();
   // Only value's rank depends on league; proj/vorp are read live at
   // render time via draftProjVal/draftVorpVal.
   state.draftMaster = computeDraftValueRanks(state.draftMaster);
@@ -1995,7 +2026,7 @@ function renderDraftGoneTally() {
 document.getElementById('draft-league-toggle').addEventListener('click', e => {
   const btn = e.target.closest('.scoring-btn');
   if (!btn) return;
-  setDraftLeague(btn.dataset.league);
+  setBoardLeague(btn.dataset.league);
 });
 
 document.querySelectorAll('#draft-table thead th[data-col]').forEach(th => {
@@ -2042,11 +2073,14 @@ document.getElementById('draft-reset-btn').addEventListener('click', () => {
    2-4 players side by side, best/worst highlighted per stat row. Reads
    from state.draftMaster (already loaded for Draft Mode) — no new data.
 
-   Proj Pts and VORP are always PPR / Joe's 10-team league here,
-   regardless of the draft-mode league toggle — the row is explicitly
-   labeled "(PPR)" / "(10 PPR)" so that's never ambiguous, and Value is
-   computed against that same Joe/10PPR VORP so the two rows agree with
-   each other no matter what state.draftLeague is set to elsewhere.
+   Proj Pts is always PPR. The VORP row has its OWN small toggle
+   (state.compareLeague: ppr10_1f or ppr12) — independent of the
+   board's league selector (state.boardLeague) elsewhere in Draft Mode.
+   Only the VORP row's numbers/highlight change when that toggle flips;
+   every other row is league-independent, INCLUDING Value, which stays
+   anchored to ppr10_1f's VORP ranking regardless of the compare
+   toggle — so it can't silently disagree with a board number computed
+   under a different league.
 ══════════════════════════════════════════════ */
 
 // direction per stat: 'high' = bigger number is better, 'low' = smaller is better
@@ -2061,6 +2095,11 @@ const COMPARE_BETTER = {
   sos: 'low',
 };
 
+// Compare's own VORP-row toggle — deliberately only these two configs,
+// not the 2F or 8 STD variants, per spec. Short labels here on purpose
+// ("10 PPR" not "10 PPR 1F") since this toggle has just two options.
+const COMPARE_LEAGUE_LABEL = { ppr10_1f: '10 PPR', ppr12: '12 PPR' };
+
 function openComparePanel() {
   document.getElementById('compare-panel').classList.add('open');
   renderComparePanel();
@@ -2068,6 +2107,14 @@ function openComparePanel() {
 
 function closeComparePanel() {
   document.getElementById('compare-panel').classList.remove('open');
+}
+
+function setCompareLeague(leagueId) {
+  state.compareLeague = leagueId;
+  document.querySelectorAll('#compare-league-toggle .scoring-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.league === leagueId);
+  });
+  renderComparePanel();
 }
 
 function addComparePlayer(key) {
@@ -2140,16 +2187,16 @@ function renderComparePanel() {
     return;
   }
 
-  // Value here is always anchored to Joe's 10PPR VORP (see header note),
-  // computed fresh across the whole master list — independent of
-  // state.draftLeague so it can't disagree with the VORP row above it.
+  // Value is always anchored to ppr10_1f's VORP ranking (see header
+  // note) — computed fresh across the whole master list, independent
+  // of state.compareLeague so it can't disagree with a board number.
   const master = state.draftMaster;
   const withAdp = master.filter(r => r.adpAvg != null).slice().sort((a, b) => a.adpAvg - b.adpAvg);
   const adpRankMap = {};
   withAdp.forEach((r, i) => { adpRankMap[r.key] = i + 1; });
-  const withVorpJoe = master.filter(r => vorpFor(r.raw, 'joe') != null).slice().sort((a, b) => vorpFor(b.raw, 'joe') - vorpFor(a.raw, 'joe'));
+  const withVorp10 = master.filter(r => vorpFor(r.raw, 'ppr10_1f') != null).slice().sort((a, b) => vorpFor(b.raw, 'ppr10_1f') - vorpFor(a.raw, 'ppr10_1f'));
   const vorpRankMap = {};
-  withVorpJoe.forEach((r, i) => { vorpRankMap[r.key] = i + 1; });
+  withVorp10.forEach((r, i) => { vorpRankMap[r.key] = i + 1; });
   const compareValueFor = p => {
     const ar = adpRankMap[p.key], vr = vorpRankMap[p.key];
     return (ar != null && vr != null) ? (ar - vr) : null;
@@ -2159,7 +2206,7 @@ function renderComparePanel() {
     { key: 'tier',       label: 'TIER',            get: p => p.tier, dec: 0 },
     { key: 'marketScore',label: 'MARKET SCORE',    get: p => p.marketScore, dec: 1 },
     { key: 'projPpr',    label: 'PROJ PTS (PPR)',  get: p => (typeof p.raw.proj_ppr === 'number' ? p.raw.proj_ppr : null), dec: 1 },
-    { key: 'vorp10',     label: 'VORP (10 PPR)',   get: p => vorpFor(p.raw, 'joe'), dec: 1 },
+    { key: 'vorp10',     label: `VORP (${COMPARE_LEAGUE_LABEL[state.compareLeague]})`, get: p => vorpFor(p.raw, state.compareLeague), dec: 1 },
     { key: 'adpAvg',     label: 'ADP CONSENSUS',   get: p => p.adpAvg, dec: 1 },
     { key: 'adpEspn',    label: 'ADP ESPN',        get: p => p.adpEspn, dec: 0 },
     { key: 'value',      label: 'VALUE',           get: p => compareValueFor(p), dec: 0 },
@@ -2198,6 +2245,12 @@ function renderComparePanel() {
     <tbody>${teamRow}${posRow}${statRowsHtml}${flagRow}</tbody>
   </table>`;
 }
+
+document.getElementById('compare-league-toggle').addEventListener('click', e => {
+  const btn = e.target.closest('.scoring-btn');
+  if (!btn) return;
+  setCompareLeague(btn.dataset.league);
+});
 
 (function initCompareSearch() {
   const input = document.getElementById('compare-search-input');
