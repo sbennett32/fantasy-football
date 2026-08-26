@@ -774,6 +774,8 @@ td.bold { color: var(--text); font-weight: 600; }
             <th data-col="vorp" id="draft-vorp-header">VORP (10 PPR 1F) <span class="sort-arrow"></span></th>
             <th data-col="value">VALUE <span class="sort-arrow"></span></th>
             <th data-col="sos" title="3-week strength of schedule for this player's team+position. 1 = easiest, 32 = hardest.">3WKSOS <span class="sort-arrow"></span></th>
+            <th data-col="risk" title="Bust risk. Deliberately uncolored — risk reads differently depending on when you're drafting.">RISK <span class="sort-arrow"></span></th>
+            <th data-col="upside" title="Ceiling upside. Deliberately uncolored — same reason as Risk.">UPSIDE <span class="sort-arrow"></span></th>
           </tr>
         </thead>
         <tbody id="draft-body"></tbody>
@@ -823,6 +825,7 @@ const state = {
   guideData: {}, // normalizeName(player)+'|'+pos -> {market_score, guide_adp, flag, confidence_level}
   tiers: {}, // normalizeName(player)+'|'+pos -> tier number (from tiers.csv, ~123 players; undefined elsewhere)
   sos: {}, // TEAM|POS -> 3-week strength-of-schedule rank 1 (easiest) - 32 (hardest), from sos3wk.csv. Team+position, NOT player name.
+  riskUpside: {}, // normalizeName(player)+'|'+pos -> {risk_pct, upside_pct} — already 0-100 integers, from udk-risk-upside.csv
   adpPpr: {},    // normalizeName(player)+'|'+pos -> {ESPN, Sleeper, CBS, RTSports, Fantrax} (values may be undefined)
   adpStd: {},    // normalizeName(player)+'|'+pos -> {Sleeper, RTSports} (values may be undefined)
   allPlayers: {}, // normalizeName(player)+'|'+pos -> {name, pos, team} — union of every loaded dataset, search index
@@ -1788,17 +1791,27 @@ function saveDraftedKeys() {
 // by key. ADP avg/ESPN always read the PPR file — it's the deep,
 // 5-source one — regardless of which league is active in draft mode.
 function buildDraftMaster() {
-  return Object.values(state.projBlended).map(p => {
-    const key = normalizeName(p.name) + '|' + p.pos;
+  // Union of projBlended and riskUpside keys — a small number of
+  // players (e.g. Keenan Allen) exist in the risk/upside file but not
+  // in projections. They still get a row here, with "—" for every stat
+  // they lack (proj, VORP, SOS, team) rather than being dropped
+  // entirely just because one source doesn't have them.
+  const keys = new Set([...Object.keys(state.projBlended), ...Object.keys(state.riskUpside)]);
+  return [...keys].map(key => {
+    const p = state.projBlended[key]; // undefined for risk/upside-only players
+    const ru = state.riskUpside[key];
+    const name = p ? p.name : ru.name;
+    const pos = p ? p.pos : ru.pos;
+    const team = p ? p.team : undefined; // udk-risk-upside.csv has no team column
     const guide = state.guideData[key];
     const adpRow = state.adpPpr[key];
     const adpAvgResult = adpAverage(adpRow);
     const flagRaw = guide && guide.flag ? String(guide.flag).trim().toLowerCase() : '';
     return {
       key,
-      name: p.name,
-      pos: p.pos,
-      team: p.team,
+      name,
+      pos,
+      team,
       tier: state.tiers[key], // from tiers.csv — undefined (never 0) if this player isn't covered
       marketScore: guide ? numOrUndef(guide.market_score) : undefined,
       flag: flagRaw || undefined,
@@ -1808,8 +1821,12 @@ function buildDraftMaster() {
       adpEspn: adpRow ? numOrUndef(adpRow.ESPN) : undefined,
       // Team+position value, NOT a player value — joined by team/pos,
       // never by name, so every player at that spot shares one number.
-      sos: p.team ? state.sos[String(p.team).toUpperCase() + '|' + p.pos] : undefined,
-      raw: p, // for projFor()/vorpFor(), which key off the league toggle
+      sos: team ? state.sos[String(team).toUpperCase() + '|' + pos] : undefined,
+      // Already 0-100 percentages — never re-multiplied. Deliberately
+      // uncolored wherever shown (see loadRiskUpsideDefaults comment).
+      risk: ru ? ru.risk_pct : undefined,
+      upside: ru ? ru.upside_pct : undefined,
+      raw: p || { name, pos }, // projFor()/vorpFor() degrade to null gracefully when proj_ppr/proj_std are absent
     };
   });
 }
@@ -1924,6 +1941,8 @@ function renderDraftTable() {
       case 'value': return r.value;
       case 'adpEspn': return r.adpEspn;
       case 'sos': return r.sos;
+      case 'risk': return r.risk;
+      case 'upside': return r.upside;
       default: return null;
     }
   };
@@ -1990,6 +2009,8 @@ function renderDraftTable() {
       <td>${cell(vorp, 1)}</td>
       <td>${valueHtml}</td>
       <td>${sosHtml}</td>
+      <td>${r.risk == null ? '—' : r.risk + '%'}</td>
+      <td>${r.upside == null ? '—' : r.upside + '%'}</td>
     </tr>`;
   }).join('');
 
@@ -2211,6 +2232,10 @@ function renderComparePanel() {
     { key: 'adpEspn',    label: 'ADP ESPN',        get: p => p.adpEspn, dec: 0 },
     { key: 'value',      label: 'VALUE',           get: p => compareValueFor(p), dec: 0 },
     { key: 'sos',        label: '3WKSOS',          get: p => p.sos, dec: 0 },
+    // Deliberately uncolored (noColor) — risk is good late, bad early
+    // in a draft, so a single best/worst color would mislead either way.
+    { key: 'risk',       label: 'RISK',            get: p => p.risk, dec: 0, pct: true, noColor: true },
+    { key: 'upside',     label: 'UPSIDE',          get: p => p.upside, dec: 0, pct: true, noColor: true },
   ];
 
   const headerRow = `<tr><th class="stat-label"></th>${players.map(p => `
@@ -2220,13 +2245,18 @@ function renderComparePanel() {
   const posRow = `<tr><th class="stat-label">POSITION</th>${players.map(p => `<td><span class="pos pos-${p.pos}">${p.pos}</span></td>`).join('')}</tr>`;
 
   const statRowsHtml = STAT_ROWS.map(row => {
-    const entries = players.map(p => ({ key: p.key, value: row.get(p) })).filter(e => typeof e.value === 'number');
-    const highlights = computeCompareHighlights(entries, COMPARE_BETTER[row.key]);
+    const highlights = row.noColor
+      ? {}
+      : computeCompareHighlights(
+          players.map(p => ({ key: p.key, value: row.get(p) })).filter(e => typeof e.value === 'number'),
+          COMPARE_BETTER[row.key]
+        );
     const cells = players.map(p => {
       const v = row.get(p);
       if (typeof v !== 'number') return `<td>—</td>`;
       const cls = highlights[p.key] === 'best' ? 'compare-best' : highlights[p.key] === 'worst' ? 'compare-worst' : '';
-      return `<td class="${cls}">${v.toFixed(row.dec)}</td>`;
+      const suffix = row.pct ? '%' : '';
+      return `<td class="${cls}">${v.toFixed(row.dec)}${suffix}</td>`;
     }).join('');
     return `<tr><th class="stat-label">${row.label}</th>${cells}</tr>`;
   }).join('');
@@ -3168,6 +3198,352 @@ CHI,TE,32`;
   } catch (e) {
     console.warn('SOS data failed to load; 3WKSOS column will show —', e);
     state.sos = {};
+  }
+})();
+
+/* ══════════════════════════════════════════════
+   RISK / UPSIDE  (udk-risk-upside.csv)
+   Already 0-100 integer percentages (UDK's original 0-10 figures x10)
+   — display as-is with a % sign, never re-multiply. Deliberately
+   uncolored everywhere they appear: risk is good late, bad early, so
+   a single green/red scale would mislead regardless of draft stage.
+══════════════════════════════════════════════ */
+(function loadRiskUpsideDefaults() {
+  try {
+    const RISK_UPSIDE_CSV = `player,position,risk_pct,upside_pct
+Aaron Rodgers,QB,70,38
+Baker Mayfield,QB,41,68
+Bo Nix,QB,46,68
+Brock Purdy,QB,42,75
+Bryce Young,QB,40,54
+C.J. Stroud,QB,42,61
+Caleb Williams,QB,58,78
+Cam Ward,QB,46,60
+Carson Beck,QB,85,58
+Dak Prescott,QB,41,77
+Daniel Jones,QB,75,63
+Deshaun Watson,QB,93,43
+Drake Maye,QB,41,82
+Fernando Mendoza,QB,88,67
+Geno Smith,QB,49,39
+Jacoby Brissett,QB,47,60
+Jalen Hurts,QB,38,58
+Jared Goff,QB,28,72
+Jaxson Dart,QB,57,82
+Jayden Daniels,QB,47,62
+Joe Burrow,QB,55,89
+Jordan Love,QB,33,52
+Josh Allen,QB,26,97
+Justin Herbert,QB,48,78
+Kirk Cousins,QB,81,48
+Kyler Murray,QB,75,75
+Lamar Jackson,QB,55,90
+Malik Willis,QB,53,80
+Matthew Stafford,QB,44,51
+Michael Penix Jr.,QB,53,47
+Patrick Mahomes,QB,53,82
+Sam Darnold,QB,40,62
+Shedeur Sanders,QB,81,58
+Trevor Lawrence,QB,49,77
+Tua Tagovailoa,QB,55,43
+Tyler Shough,QB,43,73
+AJ Dillon,RB,33,20
+Aaron Jones Sr.,RB,43,53
+Adam Randall,RB,47,38
+Alvin Kamara,RB,65,42
+Ashton Jeanty,RB,100,87
+Audric Estimé,RB,10,10
+Bhayshul Tuten,RB,64,77
+Bijan Robinson,RB,13,100
+Blake Corum,RB,46,68
+Braelon Allen,RB,50,51
+Brashard Smith,RB,48,30
+Breece Hall,RB,53,81
+Brian Robinson,RB,37,43
+Bucky Irving,RB,58,77
+Cam Skattebo,RB,65,72
+Chase Brown,RB,48,84
+Chris Brooks,RB,46,27
+Chris Rodriguez Jr.,RB,51,52
+Christian McCaffrey,RB,56,93
+Chuba Hubbard,RB,67,52
+D'Andre Swift,RB,53,68
+DJ Giddens,RB,51,38
+David Montgomery,RB,41,68
+De'Von Achane,RB,38,91
+Demond Claiborne,RB,53,48
+Derrick Henry,RB,53,86
+Devin Neal,RB,48,27
+Devin Singletary,RB,49,29
+Dylan Sampson,RB,37,49
+Emanuel Wilson,RB,49,32
+Emari Demercado,RB,53,20
+Emmett Johnson,RB,48,45
+George Holani,RB,45,20
+Isaiah Davis,RB,52,33
+Isiah Pacheco,RB,50,52
+J.K. Dobbins,RB,75,62
+Jacory Croskey-Merritt,RB,63,59
+Jadarian Price,RB,55,72
+Jahmyr Gibbs,RB,20,98
+James Conner,RB,43,33
+James Cook III,RB,25,84
+Javonte Williams,RB,43,77
+Jaydon Blue,RB,50,41
+Jaylen Warren,RB,44,62
+Jaylen Wright,RB,50,48
+Jeremiyah Love,RB,53,85
+Jerome Ford,RB,48,23
+Jonah Coleman,RB,53,58
+Jonathan Taylor,RB,39,90
+Jonathon Brooks,RB,72,60
+Jordan James,RB,48,42
+Jordan Mason,RB,40,64
+Josh Jacobs,RB,85,74
+Justice Hill,RB,37,40
+Kaelon Black,RB,57,49
+Kaleb Johnson,RB,52,31
+Kaytron Allen,RB,53,35
+Keaton Mitchell,RB,47,49
+Kenneth Walker,RB,50,82
+Kenny Gainwell,RB,44,56
+Kimani Vidal,RB,44,39
+Kyle Monangai,RB,58,57
+Kyren Williams,RB,55,80
+LeQuint Allen Jr.,RB,49,32
+MarShawn Lloyd,RB,86,60
+Mike Washington Jr.,RB,58,62
+Nicholas Singleton,RB,54,57
+Ollie Gordon II,RB,51,29
+Omarion Hampton,RB,47,87
+Quinshon Judkins,RB,50,76
+RJ Harvey,RB,62,55
+Rachaad White,RB,46,56
+Ray Davis,RB,38,47
+Rhamondre Stevenson,RB,48,56
+Rico Dowdle,RB,45,40
+Samaje Perine,RB,41,31
+Saquon Barkley,RB,49,83
+Sean Tucker,RB,48,32
+Tahj Brooks,RB,42,36
+Tank Bigsby,RB,46,60
+Tony Pollard,RB,56,59
+Travis Etienne Jr.,RB,46,76
+TreVeyon Henderson,RB,51,82
+Trevor Etienne,RB,43,38
+Ty Johnson,RB,35,38
+Tyjae Spears,RB,46,47
+Tyler Allgeier,RB,40,35
+Tyrone Tracy Jr.,RB,59,50
+Will Shipley,RB,46,20
+Woody Marks,RB,43,54
+Zach Charbonnet,RB,70,52
+A.J. Brown,WR,53,80
+Adonai Mitchell,WR,46,45
+Alec Pierce,WR,58,69
+Amon-Ra St. Brown,WR,10,97
+Andrei Iosivas,WR,37,39
+Antonio Williams,WR,53,52
+Brenen Thompson,WR,56,38
+Brian Thomas Jr.,WR,65,75
+Bryce Lance,WR,80,60
+Caleb Douglas,WR,53,44
+Calvin Austin III,WR,50,29
+Calvin Ridley,WR,52,47
+Carnell Tate,WR,59,68
+Cedric Tillman,WR,45,36
+CeeDee Lamb,WR,26,93
+Chimere Dike,WR,51,37
+Chris Bell,WR,63,56
+Chris Brazzell II,WR,70,28
+Chris Godwin Jr.,WR,45,64
+Chris Olave,WR,62,88
+Christian Kirk,WR,58,39
+Christian Watson,WR,66,81
+Cooper Kupp,WR,53,35
+Courtland Sutton,WR,50,60
+Cyrus Allen,WR,53,47
+DJ Moore,WR,42,71
+DK Metcalf,WR,44,71
+Darius Slayton,WR,49,39
+Darnell Mooney,WR,48,38
+Davante Adams,WR,52,78
+De'Zhaun Stribling,WR,53,55
+DeMario Douglas,WR,48,41
+DeVonta Smith,WR,34,76
+Deebo Samuel Sr.,WR,63,37
+Denzel Boston,WR,47,49
+Devaughn Vele,WR,48,43
+Devontez Walker,WR,43,30
+Dont'e Thornton Jr.,WR,56,35
+Dontayvion Wicks,WR,53,43
+Drake London,WR,40,91
+Elic Ayomanor,WR,47,41
+Elijah Sarratt,WR,45,43
+Emeka Egbuka,WR,55,81
+Garrett Wilson,WR,49,81
+George Pickens,WR,50,89
+Germie Bernard,WR,54,41
+Hollywood Brown,WR,51,37
+Isaac TeSlaa,WR,78,63
+Ja'Kobi Lane,WR,53,48
+Ja'Marr Chase,WR,32,97
+Jack Bech,WR,46,52
+Jahan Dotson,WR,35,25
+Jakobi Meyers,WR,27,52
+Jalen Coker,WR,37,58
+Jalen McMillan,WR,35,40
+Jalen Nailor,WR,49,39
+Jalen Tolbert,WR,44,31
+Jameson Williams,WR,53,77
+Jauan Jennings,WR,64,53
+Jaxon Smith-Njigba,WR,20,97
+Jayden Reed,WR,42,47
+Jaylen Waddle,WR,50,77
+Jaylin Lane,WR,40,30
+Jaylin Noel,WR,42,35
+Jerry Jeudy,WR,55,55
+Jordan Addison,WR,37,72
+Jordan Whittington,WR,47,33
+Jordyn Tyson,WR,72,72
+Josh Downs,WR,42,73
+Justin Jefferson,WR,47,95
+KC Concepcion,WR,59,67
+Kalif Raymond,WR,47,33
+Kayshon Boutte,WR,44,58
+Keenan Allen,WR,57,35
+Kendrick Bourne,WR,37,27
+Kendrick Law,WR,75,22
+Keon Coleman,WR,54,53
+Khalil Shakir,WR,28,51
+Kyle Williams,WR,50,57
+Ladd McConkey,WR,47,68
+Luther Burden III,WR,55,78
+Mack Hollins,WR,53,34
+Makai Lemon,WR,66,69
+Malachi Fields,WR,54,37
+Malik Benson,WR,55,35
+Malik Nabers,WR,63,90
+Malik Washington,WR,46,51
+Marvin Harrison Jr.,WR,62,73
+Marvin Mims Jr.,WR,47,23
+Matthew Golden,WR,52,68
+Michael Pittman Jr.,WR,35,49
+Michael Wilson,WR,38,66
+Mike Evans,WR,78,75
+Nico Collins,WR,46,89
+Olamide Zaccheaus,WR,25,25
+Omar Cooper Jr.,WR,67,59
+Parker Washington,WR,43,62
+Pat Bryant,WR,40,47
+Puka Nacua,WR,63,96
+Quentin Johnston,WR,63,64
+Rashee Rice,WR,95,83
+Rashid Shaheed,WR,44,53
+Rashod Bateman,WR,52,38
+Roman Wilson,WR,51,27
+Rome Odunze,WR,35,73
+Romeo Doubs,WR,39,60
+Ryan Flournoy,WR,43,48
+Skyler Bell,WR,35,30
+Stefon Diggs,WR,53,50
+Tank Dell,WR,85,63
+Ted Hurst III,WR,43,33
+Tee Higgins,WR,61,83
+Terry McLaurin,WR,44,68
+Tetairoa McMillan,WR,40,82
+Tez Johnson,WR,46,36
+Tory Horton,WR,51,40
+Travis Hunter,WR,83,63
+Tre Tucker,WR,45,46
+Tre' Harris,WR,43,51
+Treylon Burks,WR,57,36
+Troy Franklin,WR,40,37
+Tutu Atwell,WR,50,29
+Tyquan Thornton,WR,58,37
+Van Jefferson,WR,40,20
+Wan'Dale Robinson,WR,46,47
+Xavier Hutchinson,WR,35,20
+Xavier Legette,WR,47,42
+Xavier Worthy,WR,62,60
+Zachariah Branch,WR,43,52
+Zavion Thomas,WR,63,43
+Zay Flowers,WR,43,75
+AJ Barner,TE,39,42
+Ben Sinnott,TE,80,59
+Brenton Strange,TE,36,55
+Brock Bowers,TE,25,98
+Cade Otton,TE,38,38
+Charlie Kolar,TE,43,27
+Chig Okonkwo,TE,38,52
+Colby Parkinson,TE,41,48
+Cole Kmet,TE,35,37
+Colston Loveland,TE,42,92
+Dallas Goedert,TE,51,63
+Dalton Kincaid,TE,58,77
+Dalton Schultz,TE,31,48
+Darnell Washington,TE,46,31
+Darren Waller,TE,50,38
+David Njoku,TE,53,39
+Dawson Knox,TE,25,28
+Eli Stowers,TE,63,53
+Elijah Arroyo,TE,45,44
+Evan Engram,TE,47,28
+George Kittle,TE,80,84
+Greg Dulcich,TE,48,58
+Gunnar Helm,TE,42,43
+Harold Fannin Jr.,TE,41,86
+Hunter Henry,TE,34,59
+Isaiah Likely,TE,38,58
+Ja'Tavion Sanders,TE,40,39
+Jake Ferguson,TE,53,64
+Jake Tonges,TE,40,25
+Justin Joly,TE,30,20
+Juwan Johnson,TE,38,52
+Kenyon Sadiq,TE,46,54
+Kyle Pitts Sr.,TE,58,63
+Luke Musgrave,TE,47,38
+Mark Andrews,TE,40,55
+Mason Taylor,TE,41,36
+Max Klare,TE,54,46
+Michael Mayer,TE,48,25
+Mike Gesicki,TE,36,56
+Nate Boerkircher,TE,10,10
+Noah Fant,TE,48,33
+Noah Gray,TE,43,23
+Oronde Gadsden,TE,45,68
+Oscar Delp,TE,69,38
+Pat Freiermuth,TE,42,38
+Sam LaPorta,TE,44,62
+T.J. Hockenson,TE,41,52
+Terrance Ferguson,TE,51,44
+Theo Johnson,TE,42,48
+Tommy Tremble,TE,30,30
+Travis Kelce,TE,48,55
+Trey McBride,TE,42,83
+Tucker Kraft,TE,55,82
+Tyler Warren,TE,34,88`;
+
+    const rows = parseCSV(RISK_UPSIDE_CSV);
+    const riskUpside = {};
+    rows.forEach(row => {
+      const pos = (row.position || '').toUpperCase();
+      const key = normalizeName(row.player) + '|' + pos;
+      riskUpside[key] = {
+        // name/pos kept so a player who ISN'T in projBlended (e.g.
+        // Keenan Allen) can still get a standalone Draft Mode row —
+        // see buildDraftMaster()'s union of the two key sets.
+        name: row.player,
+        pos,
+        risk_pct: numOrUndef(row.risk_pct),
+        upside_pct: numOrUndef(row.upside_pct),
+      };
+      registerPlayer(row.player, pos);
+    });
+    state.riskUpside = riskUpside;
+  } catch (e) {
+    console.warn('Risk/Upside data failed to load; those columns will show —', e);
+    state.riskUpside = {};
   }
 })();
 
