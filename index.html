@@ -753,6 +753,17 @@ td.bold { color: var(--text); font-weight: 600; }
         <button class="filter-btn" data-pos="TE">TE</button>
         <button class="filter-btn" data-pos="FLEX">FLEX</button>
       </div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span style="font-size:10px;color:var(--text3);letter-spacing:0.1em;">ADP:</span>
+        <div class="scoring-toggle" id="draft-adp-toggle">
+          <button class="scoring-btn active" data-platform="consensus">CONSENSUS</button>
+          <button class="scoring-btn" data-platform="ESPN">ESPN</button>
+          <button class="scoring-btn" data-platform="Sleeper">SLEEPER</button>
+          <button class="scoring-btn" data-platform="CBS">CBS</button>
+          <button class="scoring-btn" data-platform="RTSports">RTSPORTS</button>
+          <button class="scoring-btn" data-platform="Fantrax">FANTRAX</button>
+        </div>
+      </div>
       <div style="font-size:10px;color:var(--text3);letter-spacing:0.04em;">
         VALUE = ADP rank − VORP rank, in draft slots. Positive = going later than his value warrants.
       </div>
@@ -765,8 +776,8 @@ td.bold { color: var(--text); font-weight: 600; }
             <th class="l" data-col="name">PLAYER <span class="sort-arrow"></span></th>
             <th class="l" data-col="pos">POS <span class="sort-arrow"></span></th>
             <th class="l" data-col="team">TEAM <span class="sort-arrow"></span></th>
-            <th data-col="adpAvg" class="sorted">ADP AVG <span class="sort-arrow">↑</span></th>
-            <th data-col="adpEspn">ADP ESPN <span class="sort-arrow"></span></th>
+            <th data-col="adpAvg" class="sorted">ADP CONSENSUS <span class="sort-arrow">↑</span></th>
+            <th data-col="adpPlatform" id="draft-adp-header">ADP (CONSENSUS) <span class="sort-arrow"></span></th>
             <th data-col="tier">TIER <span class="sort-arrow"></span></th>
             <th data-col="marketScore">MKT SCORE <span class="sort-arrow"></span></th>
             <th class="l" data-col="flag">FLAG <span class="sort-arrow"></span></th>
@@ -861,6 +872,11 @@ const state = {
   // display toggle). boardLeague picks which of state.leagues drives
   // the board's VORP column, Proj Pts, and Value — draft mode only.
   boardLeague: 'ppr10_1f',
+  // Which ADP source the board's ADP column (and the Value column it
+  // feeds) reads from: 'consensus' or one of the adpPpr source keys
+  // (ESPN/Sleeper/CBS/RTSports/Fantrax). Independent of boardLeague —
+  // boardLeague picks the VORP basis, adpPlatform picks the ADP basis.
+  adpPlatform: 'consensus',
   compareLeague: 'ppr10_1f', // Compare panel's own 10PPR/12PPR toggle — independent of boardLeague
   draftPos: 'ALL',
   draftSort: { col: 'adpAvg', dir: 'asc' },
@@ -1818,7 +1834,8 @@ function buildDraftMaster() {
       cl: guide ? numOrUndef(guide.confidence_level) : undefined,
       adpAvg: adpAvgResult.avg,
       adpAvgCount: adpAvgResult.count,
-      adpEspn: adpRow ? numOrUndef(adpRow.ESPN) : undefined,
+      adpEspn: adpRow ? numOrUndef(adpRow.ESPN) : undefined, // compare panel's fixed ADP ESPN row only — board reads adpBySource instead
+      adpBySource: adpRow || {}, // {ESPN, Sleeper, CBS, RTSports, Fantrax} — raw per-platform ADP for the board's platform selector
       // Team+position value, NOT a player value — joined by team/pos,
       // never by name, so every player at that spot shares one number.
       sos: team ? state.sos[String(team).toUpperCase() + '|' + pos] : undefined,
@@ -1838,6 +1855,19 @@ function draftVorpVal(row) {
   return vorpFor(row.raw, state.boardLeague);
 }
 
+const ADP_PLATFORM_LABELS = { consensus: 'CONSENSUS', ESPN: 'ESPN', Sleeper: 'SLEEPER', CBS: 'CBS', RTSports: 'RTSPORTS', Fantrax: 'FANTRAX' };
+
+// The board's ADP number, driven by state.adpPlatform. Consensus reads
+// the precomputed cross-source average; a specific platform reads its
+// raw ADP straight off adpBySource. Never falls back to another source
+// when the selected one is blank — a blank means that platform simply
+// didn't rank this player, not that the number is 0. Sparse platforms
+// (e.g. CBS covers ~217 players) will show more blanks here, which
+// means a noisier Value column for deep players — expected, not a bug.
+function boardAdpVal(row) {
+  return state.adpPlatform === 'consensus' ? row.adpAvg : row.adpBySource[state.adpPlatform];
+}
+
 // Keeps the VORP column header in sync with the active board league,
 // e.g. "VORP (10 PPR 2F)" — preserves whatever sort-arrow/sorted state
 // is currently showing on that header.
@@ -1850,6 +1880,17 @@ function updateDraftVorpHeader() {
   th.classList.toggle('sorted', wasSorted);
 }
 
+// Same idea as updateDraftVorpHeader, for the ADP column: "ADP (ESPN)",
+// "ADP (CONSENSUS)", etc., tracking state.adpPlatform.
+function updateDraftAdpHeader() {
+  const th = document.getElementById('draft-adp-header');
+  if (!th) return;
+  const arrowText = th.querySelector('.sort-arrow') ? th.querySelector('.sort-arrow').textContent : '';
+  const wasSorted = th.classList.contains('sorted');
+  th.innerHTML = `ADP (${ADP_PLATFORM_LABELS[state.adpPlatform]}) <span class="sort-arrow">${arrowText}</span>`;
+  th.classList.toggle('sorted', wasSorted);
+}
+
 // VALUE = (where the market drafts him) minus (where his value says he
 // should go), in draft slots. Positive = underpriced — the market is
 // letting him fall further than his VORP justifies. Negative = the
@@ -1857,10 +1898,10 @@ function updateDraftVorpHeader() {
 // across the WHOLE player pool (not per-position) — ADP is an overall
 // draft-order concept and VORP is designed to be cross-position
 // comparable, so ranking either within position would misrepresent both.
-// Depends on state.boardLeague via draftVorpVal — call again whenever
-// the league selector changes.
+// Depends on state.boardLeague via draftVorpVal AND state.adpPlatform
+// via boardAdpVal — call again whenever either selector changes.
 function computeDraftValueRanks(master) {
-  const withAdp = master.filter(r => r.adpAvg != null).slice().sort((a, b) => a.adpAvg - b.adpAvg);
+  const withAdp = master.filter(r => boardAdpVal(r) != null).slice().sort((a, b) => boardAdpVal(a) - boardAdpVal(b));
   const adpRank = {};
   withAdp.forEach((r, i) => { adpRank[r.key] = i + 1; });
 
@@ -1881,11 +1922,24 @@ function openDraftMode() {
   state.draftMaster = computeDraftValueRanks(buildDraftMaster());
   document.getElementById('page-draft').classList.add('open');
   updateDraftVorpHeader();
+  updateDraftAdpHeader();
   renderDraftTable();
 }
 
 function closeDraftMode() {
   document.getElementById('page-draft').classList.remove('open');
+}
+
+function setAdpPlatform(platform) {
+  state.adpPlatform = platform;
+  document.querySelectorAll('#draft-adp-toggle .scoring-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.platform === platform);
+  });
+  updateDraftAdpHeader();
+  // Only value's rank depends on the ADP platform; the ADP cell itself
+  // is read live at render time via boardAdpVal.
+  state.draftMaster = computeDraftValueRanks(state.draftMaster);
+  renderDraftTable();
 }
 
 function setBoardLeague(leagueId) {
@@ -1938,8 +1992,8 @@ function renderDraftTable() {
       case 'proj': return draftProjVal(r);
       case 'vorp': return draftVorpVal(r);
       case 'adpAvg': return r.adpAvg;
+      case 'adpPlatform': return boardAdpVal(r);
       case 'value': return r.value;
-      case 'adpEspn': return r.adpEspn;
       case 'sos': return r.sos;
       case 'risk': return r.risk;
       case 'upside': return r.upside;
@@ -1983,6 +2037,18 @@ function renderDraftTable() {
     const drafted = state.draftedKeys.has(r.key);
     const proj = draftProjVal(r);
     const vorp = draftVorpVal(r);
+    // ADP CONSENSUS is a fixed column — always the cross-source average,
+    // regardless of the platform toggle.
+    const adpConsensusHtml = r.adpAvg != null
+      ? `${r.adpAvg.toFixed(1)} <span style="color:var(--text3);font-size:9px;">(${r.adpAvgCount})</span>`
+      : '—';
+    // ADP (platform) is the toggled column — reads state.adpPlatform, so
+    // it duplicates the consensus column when the toggle itself is on
+    // "consensus". Source count is only meaningful next to a consensus
+    // average, so it's only shown here in that one case.
+    const platformAdpVal = boardAdpVal(r);
+    const adpPlatformHtml = platformAdpVal == null ? '—'
+      : `${platformAdpVal.toFixed(1)}${state.adpPlatform === 'consensus' ? ` <span style="color:var(--text3);font-size:9px;">(${r.adpAvgCount})</span>` : ''}`;
     // No color coding on FLAG or VALUE by request — plain text only, so
     // the number/label speaks for itself without a color nudging it.
     const flagHtml = r.flag
@@ -2000,8 +2066,8 @@ function renderDraftTable() {
       <td class="l bold draft-name">${r.name}</td>
       <td class="l"><span class="pos pos-${r.pos}">${r.pos}</span></td>
       <td class="l">${r.team || '—'}</td>
-      <td>${r.adpAvg != null ? `${r.adpAvg.toFixed(1)} <span style="color:var(--text3);font-size:9px;">(${r.adpAvgCount})</span>` : '—'}</td>
-      <td>${cell(r.adpEspn)}</td>
+      <td>${adpConsensusHtml}</td>
+      <td>${adpPlatformHtml}</td>
       <td>${cell(r.tier)}</td>
       <td>${cell(r.marketScore, 1)}</td>
       <td class="l">${flagHtml}</td>
@@ -2050,6 +2116,12 @@ document.getElementById('draft-league-toggle').addEventListener('click', e => {
   setBoardLeague(btn.dataset.league);
 });
 
+document.getElementById('draft-adp-toggle').addEventListener('click', e => {
+  const btn = e.target.closest('.scoring-btn');
+  if (!btn) return;
+  setAdpPlatform(btn.dataset.platform);
+});
+
 document.querySelectorAll('#draft-table thead th[data-col]').forEach(th => {
   th.addEventListener('click', () => {
     const col = th.dataset.col;
@@ -2058,7 +2130,7 @@ document.querySelectorAll('#draft-table thead th[data-col]').forEach(th => {
     // drafted first, Tier 1 = best tier, SOS 1 = easiest schedule) so
     // they default ascending; every other numeric column (points, VORP,
     // value, market score) defaults descending — best/highest first.
-    const lowIsBetter = col === 'adpAvg' || col === 'tier' || col === 'sos';
+    const lowIsBetter = col === 'adpAvg' || col === 'adpPlatform' || col === 'tier' || col === 'sos';
     const dir = state.draftSort.col === col
       ? (state.draftSort.dir === 'asc' ? 'desc' : 'asc')
       : (isStringCol || lowIsBetter ? 'asc' : 'desc');
@@ -2102,6 +2174,11 @@ document.getElementById('draft-reset-btn').addEventListener('click', () => {
    anchored to ppr10_1f's VORP ranking regardless of the compare
    toggle — so it can't silently disagree with a board number computed
    under a different league.
+
+   The ADP (PLATFORM) row DOES follow the board's ADP platform toggle
+   (state.adpPlatform, shared with the board) — unlike VORP/Value above,
+   there's no separate compare-panel ADP toggle, so it just mirrors
+   whatever the board is currently showing in its own toggled column.
 ══════════════════════════════════════════════ */
 
 // direction per stat: 'high' = bigger number is better, 'low' = smaller is better
@@ -2111,7 +2188,7 @@ const COMPARE_BETTER = {
   projPpr: 'high',
   vorp10: 'high',
   adpAvg: 'low',
-  adpEspn: 'low',
+  adpPlatform: 'low',
   value: 'high',
   sos: 'low',
 };
@@ -2228,8 +2305,8 @@ function renderComparePanel() {
     { key: 'marketScore',label: 'MARKET SCORE',    get: p => p.marketScore, dec: 1 },
     { key: 'projPpr',    label: 'PROJ PTS (PPR)',  get: p => (typeof p.raw.proj_ppr === 'number' ? p.raw.proj_ppr : null), dec: 1 },
     { key: 'vorp10',     label: `VORP (${COMPARE_LEAGUE_LABEL[state.compareLeague]})`, get: p => vorpFor(p.raw, state.compareLeague), dec: 1 },
-    { key: 'adpAvg',     label: 'ADP CONSENSUS',   get: p => p.adpAvg, dec: 1 },
-    { key: 'adpEspn',    label: 'ADP ESPN',        get: p => p.adpEspn, dec: 0 },
+    { key: 'adpAvg',      label: 'ADP CONSENSUS',                                get: p => p.adpAvg, dec: 1 },
+    { key: 'adpPlatform', label: `ADP (${ADP_PLATFORM_LABELS[state.adpPlatform]})`, get: p => boardAdpVal(p), dec: 1 },
     { key: 'value',      label: 'VALUE',           get: p => compareValueFor(p), dec: 0 },
     { key: 'sos',        label: '3WKSOS',          get: p => p.sos, dec: 0 },
     // Deliberately uncolored (noColor) — risk is good late, bad early
